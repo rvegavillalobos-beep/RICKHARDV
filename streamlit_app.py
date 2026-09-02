@@ -23,19 +23,17 @@ def determine_battery_type(part_id: str, feature_name: str) -> str:
 
 def extract_corner_index(feature_name: str) -> int:
   f = str(feature_name).lower().strip()
-  # Mapeo exacto basado en la nomenclatura de los features CAD / Raw Data
   if "l0324" in f and "aa" in f:
-     return 1  # FL (Front-Left AA)
+     return 1  # FL
   elif "r0301" in f and "aa" in f:
-     return 2  # FR (Front-Right AA)
+     return 2  # FR
   elif "l0324" in f and ("dj" in f or "da" in f or "cc" in f or "bd" in f):
-     return 3  # RL (Rear-Left)
+     return 3  # RL
   elif ("r0301" in f or "r302" in f or "r309" in f or "r308" in f) and (
       "dj" in f or "da" in f or "cc" in f or "bd" in f
   ):
-     return 4  # RR (Rear-Right)
+     return 4  # RR
   
-  # Fallbacks genéricos por si cambia la nomenclatura
   if "fl" in f: return 1
   if "fr" in f: return 2
   if "rl" in f: return 3
@@ -51,7 +49,7 @@ def get_nominal_coordinates(bat_type: str):
         "RL_X": 997.28,  "RL_Y": -559.4,
         "RR_X": 997.28,  "RR_Y": 511.1,
     }
-  else:  # Type M o genérico
+  else:
     return {
         "FL_X": 2290.48, "FL_Y": -559.4,
         "FR_X": 2290.48, "FR_Y": 558.9,
@@ -103,19 +101,16 @@ if uploaded_file is not None:
     df_raw["X_Val"] = pd.to_numeric(df_raw[x_dev_col], errors="coerce").fillna(0.0)
     df_raw["Y_Val"] = pd.to_numeric(df_raw[y_dev_col], errors="coerce").fillna(0.0)
     
-    # Identificar fuera de especificación por esquina (± spec_limit)
     df_raw["IsOutOfSpec"] = (
         (df_raw["X_Val"].abs() > spec_limit) | 
         (df_raw["Y_Val"].abs() > spec_limit)
     )
 
-    # --- AGRUPACIÓN CORRECTA: 1 Batería (Time + PartID) por línea ---
     modules_data = []
-    # Agrupamos estrictamente por la combinación única de Fecha/Hora y PartID
     grouped = df_raw.groupby([time_col, part_col])
 
     for (t_val, p_val), group in grouped:
-      first_row = group.iloc().iloc[0]
+      first_row = group.iloc[0]  # <--- CORREGIDO AQUÍ
       full_dt = first_row["ParsedDate"]
       cal_week = first_row["CalendarWeek"]
       bat_type = first_row["BatteryType"]
@@ -179,7 +174,6 @@ if uploaded_file is not None:
         fig = go.Figure()
         nom = get_nominal_coordinates(row_sel["BatteryType"])
         
-        # Dibujar perfil nominal
         nom_box = [
             (nom["RL_X"], nom["RL_Y"]), 
             (nom["FL_X"], nom["FL_Y"]), 
@@ -192,7 +186,6 @@ if uploaded_file is not None:
             mode="lines", name="Nominal CAD", line=dict(color="blue", width=2, dash="dash")
         ))
 
-        # Dibujar perfil real medido si las esquinas no son nulas
         if not pd.isna(row_sel["FL_X"]):
           act_box = [
               (nom["RL_X"] + row_sel["RL_X"], nom["RL_Y"] + row_sel["RL_Y"]),
@@ -250,7 +243,6 @@ if uploaded_file is not None:
       df_squareness = pd.DataFrame(squareness_records)
       st.dataframe(df_squareness, use_container_width=True)
 
-    # --- EXPORTAR A EXCEL ---
     st.markdown("---")
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
