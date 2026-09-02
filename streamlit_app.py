@@ -1,3 +1,93 @@
+import io
+import math
+from datetime import datetime
+import numpy as np
+import pandas as pd
+import streamlit as st
+
+# Configuración de la página de Streamlit
+st.set_page_config(
+    page_title='Análisis de Metrología - Control Geométrico',
+    page_icon='📊',
+    layout='wide',
+)
+
+# --- CONSTANTES Y TOLERANCIAS ---
+OUT_OF_SPEC_LIMIT = 1.0  # Límite en mm para desviaciones individuales (X, Y)
+MAX_DIAG_DELTA_TOL = 1.5  # Tolerancia para diferencia de diagonales
+
+# Valores nominales de referencia por tipo de batería (Ajustables según tus fixtures)
+NOMINALS = {
+    'TYPE S': {
+        'FL_X': 0.0,
+        'FL_Y': 0.0,
+        'FR_X': 1000.0,
+        'FR_Y': 0.0,
+        'RL_X': 0.0,
+        'RL_Y': 2000.0,
+        'RR_X': 1000.0,
+        'RR_Y': 2000.0,
+    },
+    'TYPE L': {
+        'FL_X': 0.0,
+        'FL_Y': 0.0,
+        'FR_X': 1200.0,
+        'FR_Y': 0.0,
+        'RL_X': 0.0,
+        'RL_Y': 2500.0,
+        'RR_X': 1200.0,
+        'RR_Y': 2500.0,
+    },
+}
+
+# --- FUNCIONES AUXILIARES ---
+
+
+def parse_english_datetime(val):
+  if pd.isna(val):
+    return pd.NaT
+  if isinstance(val, (datetime, pd.Timestamp)):
+    return val
+  try:
+    return pd.to_datetime(val)
+  except Exception:
+    try:
+      return pd.to_datetime(val, format='%d/%m/%Y %H:%M:%S', errors='coerce')
+    except:
+      return pd.NaT
+
+
+def determine_battery_type(part_id, feature_name):
+  p_str = str(part_id).upper()
+  f_str = str(feature_name).upper()
+  if 'L' in p_str or 'LONG' in f_str:
+    return 'TYPE L'
+  return 'TYPE S'
+
+
+def extract_corner_index(feature_name, battery_type):
+  f_upper = str(feature_name).upper()
+  if 'FL' in f_upper or 'FRONT_LEFT' in f_upper or 'F_L' in f_upper:
+    return 'FL'
+  elif 'FR' in f_upper or 'FRONT_RIGHT' in f_upper or 'F_R' in f_upper:
+    return 'FR'
+  elif 'RL' in f_upper or 'REAR_LEFT' in f_upper or 'R_L' in f_upper:
+    return 'RL'
+  elif 'RR' in f_upper or 'REAR_RIGHT' in f_upper or 'R_R' in f_upper:
+    return 'RR'
+  return 'UNKNOWN'
+
+
+def calculate_corner_angle(x1, y1, x2, y2, x3, y3):
+  v1 = np.array([x2 - x1, y2 - y1])
+  v2 = np.array([x3 - x1, y3 - y1])
+  cos_theta = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2) + 1e-9)
+  cos_theta = np.clip(cos_theta, -1.0, 1.0)
+  angle_rad = np.arccos(cos_theta)
+  return np.degrees(angle_rad)
+
+
+# --- FUNCIÓN PRINCIPAL DE PROCESAMIENTO (LÓGICA VBA) ---
 @st.cache_data
 def process_data(file):
   if file.name.endswith(('.xlsx', '.xls')):
@@ -74,7 +164,7 @@ def process_data(file):
 
   df = df.sort_values('DateTime').reset_index(drop=True)
 
-  # --- LÓGICA EXACTA DE VBA PARA DETECCIÓN DE RUNS POR REPETICIÓN DE FEATURE ---
+  # --- DETECCIÓN DE RUNS POR REPETICIÓN DE FEATURE (ESTILO VBA) ---
   run_tracker = {}
   mod_corner_history = {}
   run_nums = []
@@ -227,3 +317,85 @@ def process_data(file):
 
   df_mod = pd.DataFrame(modules)
   return df, df_mod
+
+
+# --- INTERFAZ GRÁFICA DE STREAMLIT ---
+
+
+def main():
+  st.title('📊 Dashboard de Metrología y Control Geométrico')
+  st.markdown(
+      'Sistema automatizado de análisis para marcos de baterías y validación de'
+      ' fixtures.'
+  )
+
+  uploaded_file = st.file_uploader(
+      'Carga tu archivo de reporte de metrología (Excel o CSV)',
+      type=['xlsx', 'xls', 'csv'],
+  )
+
+  if uploaded_file is not None:
+    with st.spinner('Procesando datos y calculando geometría...'):
+      try:
+        df_raw, df_mod = process_data(uploaded_file)
+      except Exception as e:
+        st.error(f'Error al procesar el archivo: {e}')
+        return
+
+    st.success('¡Archivo procesado con éxito!')
+
+    # Tarjetas de Métricas Superiores
+    col1, col2, col3, col4 = st.columns(4)
+    total_runs = len(df_mod)
+    passes = len(df_mod[df_mod['OverallPass'] == 'PASS'])
+    fails = len(df_mod[df_mod['OverallPass'] == 'FAIL'])
+    pass_rate = (passes / total_runs * 100) if total_runs > 0 else 0
+
+    col1.metric('Total Mediciones (Runs)', total_runs)
+    col2.metric('Aprobados (PASS)', passes, delta=f'{pass_rate:.1f}%')
+    col3.metric('Rechazados (FAIL)', fails)
+    col4.metric('Límite de Tolerancia', f'±{OUT_OF_SPEC_LIMIT} mm')
+
+    st.markdown('---')
+
+    # Filtros laterales
+    st.sidebar.header('Filtros de Búsqueda')
+    selected_status = st.sidebar.selectbox(
+        'Estatus General', ['TODOS', 'PASS', 'FAIL']
+    )
+    selected_date = st.sidebar.selectbox(
+        'Fecha de Medición', ['TODAS'] + list(df_mod['Date'].unique())
+    )
+
+    filtered_df = df_mod.copy()
+    if selected_status != 'TODOS':
+      filtered_df = filtered_df[filtered_df['OverallPass'] == selected_status]
+    if selected_date != 'TODAS':
+      filtered_df = filtered_df[filtered_df['Date'] == selected_date]
+
+    st.subheader(f'Resultados Filtrados ({len(filtered_df)} registros)')
+    st.dataframe(filtered_df, use_container_width=True)
+
+    # Exportación a Excel
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+      filtered_df.to_excel(writer, sheet_name='Resultados_Metrologia', index=False)
+    processed_data = output.getvalue()
+
+    st.download_button(
+        label='📥 Descargar Reporte en Excel',
+        data=processed_data,
+        file_name='Reporte_Metrologia_Procesado.xlsx',
+        mime=(
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        ),
+    )
+  else:
+    st.info(
+        '👉 Por favor, carga un archivo de datos (Excel o CSV) en la parte'
+        ' superior para iniciar.'
+    )
+
+
+if __name__ == '__main__':
+  main()
