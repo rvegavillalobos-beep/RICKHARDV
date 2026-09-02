@@ -305,8 +305,9 @@ if uploaded_file is not None:
                         color_continuous_scale="Reds",
                         title="Frecuencia de Causa Raíz en Deformaciones"
                     )
+                    # CORREGIDO: "reversed" en vez de "reverse"
                     fig_pareto.update_layout(
-                        yaxis=dict(autorange="reverse"),
+                        yaxis=dict(autorange="reversed"),
                         showlegend=False
                     )
                     fig_pareto.update_coloraxes(showscale=False)
