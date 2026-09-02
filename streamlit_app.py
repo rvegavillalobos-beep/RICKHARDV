@@ -24,15 +24,20 @@ def determine_battery_type(part_id: str, feature_name: str) -> str:
 def extract_corner_index(feature_name: str) -> int:
   f = str(feature_name).lower().strip()
   
-  if "l324_aa" in f or "l0324_aa" in f:
-    return 1  # FL
-  if "r301_aa" in f or "r0301_aa" in f:
-    return 2  # FR
-  if "l324_da" in f or "l0324_dj" in f or "l324_cc" in f or "l316" in f:
-    return 3  # RL
-  if "r302_da" in f or "r301_dj" in f or "r309" in f or "r308" in f or "r309_cc" in f or "r308_bd" in f:
-    return 4  # RR
+  # FL (Front-Left): L0324 o L324 con 'aa'
+  if ("l324" in f or "l0324" in f) and "aa" in f:
+    return 1  
+  # FR (Front-Right): R0301 o R301 con 'aa'
+  if ("r301" in f or "r0301" in f) and "aa" in f:
+    return 2  
+  # RL (Rear-Left): L0324, L324 o L316 sin 'aa' (ej. da, dj, cc, bd)
+  if ("l324" in f or "l0324" in f or "l316" in f) and "aa" not in f:
+    return 3  
+  # RR (Rear-Right): Lados derechos (r302, r301, r309, r308) sin 'aa' (ej. da, dj, cc, bd)
+  if ("r302" in f | "r301" in f | "r0301" in f | "r309" in f | "r308" in f) and "aa" not in f:
+    return 4  
   
+  # Fallbacks generales por seguridad
   if "fl" in f: return 1
   if "fr" in f: return 2
   if "rl" in f: return 3
@@ -182,7 +187,6 @@ if uploaded_file is not None:
     with tab2:
       st.subheader("Visualización Geométrica por Batería")
       if not df_summary.empty:
-        # Filtrar solo las que tienen las 4 esquinas completas para graficar sin error
         valid_plot_df = df_summary.dropna(subset=["FL_X", "FR_X", "RL_X", "RR_X"])
         if not valid_plot_df.empty:
           selected_idx = st.selectbox(
@@ -234,7 +238,6 @@ if uploaded_file is not None:
       squareness_records = []
 
       for _, row in df_summary.iterrows():
-        # Validar que ninguna esquina sea nula antes de operar
         if pd.isna(row["FL_X"]) or pd.isna(row["FR_X"]) or pd.isna(row["RL_X"]) or pd.isna(row["RR_X"]):
           continue
           
