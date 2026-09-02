@@ -377,9 +377,12 @@ def main():
     st.dataframe(filtered_df, use_container_width=True)
 
     # Exportación a Excel
+    # Exportación a Excel
     output = io.BytesIO()
- with pd.ExcelWriter(output) as writer:
-      filtered_df.to_excel(writer, sheet_name='Resultados_Metrologia', index=False)
+    with pd.ExcelWriter(output) as writer:
+      filtered_df.to_excel(
+          writer, sheet_name='Resultados_Metrologia', index=False
+      )
     processed_data = output.getvalue()
 
     st.download_button(
