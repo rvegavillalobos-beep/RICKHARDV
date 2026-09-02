@@ -212,23 +212,68 @@ if uploaded_file is not None:
         df_summary = df_summary[cols]
 
         tab1, tab2, tab3 = st.tabs([
-            "📊 Resumen General (1 Línea por Batería)", 
+            "📊 Resumen General & FPY", 
             "📈 Gráfica Geométrica Interactiva", 
             "📐 Análisis de Escuadría"
         ])
 
         with tab1:
+            st.subheader("📋 Resumen de Calidad de Primer Intento (First-Run)")
+
+            # Filtrar estrictamente para RunNum == 1
+            df_run1 = df_summary[df_summary["RunNum"] == 1]
+            total_run1 = len(df_run1)
+            passed_run1 = len(df_run1[df_run1["Status"] == "PASS"])
+            failed_run1 = len(df_run1[df_run1["Status"] == "FAIL"])
+            fpy_val = (passed_run1 / total_run1 * 100) if total_run1 > 0 else 0
+
+            # Tabla 1: First-Run Quality Summary
+            summary_table_data = {
+                "Metric": [
+                    "Unique Modules (Run 1)",
+                    "Passed First-Run (OK)",
+                    "Failed First-Run (NOK)",
+                    "First-Pass Yield (FPY)"
+                ],
+                "Value": [
+                    total_run1,
+                    passed_run1,
+                    failed_run1,
+                    f"{fpy_val:.1f}%"
+                ]
+            }
+            df_quality_summary = pd.DataFrame(summary_table_data)
+            
+            col_t1, col_t2 = st.columns([1.2, 2.8])
+            with col_t1:
+                st.markdown("##### FIRST-RUN QUALITY SUMMARY")
+                st.dataframe(df_quality_summary, hide_index=True, use_container_width=True)
+
+            with col_t2:
+                st.markdown("##### WEEKLY FIRST-PASS YIELD TREND")
+                if not df_run1.empty:
+                    weekly_group = df_run1.groupby("CalendarWeek")
+                    weekly_data = []
+                    for w, w_group in weekly_group:
+                        w_total = len(w_group)
+                        w_passed = len(w_group[w_group["Status"] == "PASS"])
+                        w_failed = len(w_group[w_group["Status"] == "FAIL"])
+                        w_rate = (w_passed / w_total * 100) if w_total > 0 else 0
+                        weekly_data.append({
+                            "CalendarWeek": w,
+                            "Unique Modules": w_total,
+                            "Passed (OK)": w_passed,
+                            "Failed (NOK)": w_failed,
+                            "Pass Rate (%)": f"{w_rate:.1f}%"
+                        })
+                    df_weekly = pd.DataFrame(weekly_data)
+                    st.dataframe(df_weekly, hide_index=True, use_container_width=True)
+                else:
+                    st.info("No hay datos de Run 1 para generar la tendencia semanal.")
+
+            st.markdown("---")
             st.subheader("Reporte General de Módulos (Orden Cronológico)")
             st.dataframe(style_report(df_summary, spec_limit), use_container_width=True)
-
-            col1, col2, col3 = st.columns(3)
-            total_modules = len(df_summary)
-            passed_modules = len(df_summary[df_summary["Status"] == "PASS"])
-            fpy = (passed_modules / total_modules * 100) if total_modules > 0 else 0
-
-            col1.metric("Total de Baterías Inspeccionadas", total_modules)
-            col2.metric(f"Aprobadas dentro de Spec (±{spec_limit}mm)", passed_modules)
-            col3.metric("First-Pass Yield (FPY)", f"{fpy:.1f}%")
 
         with tab2:
             st.subheader("Visualización Geométrica por Batería")
@@ -326,6 +371,10 @@ if uploaded_file is not None:
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             df_summary.to_excel(writer, sheet_name="Module_Summary_Report", index=False)
+            if 'df_quality_summary' in locals():
+                df_quality_summary.to_excel(writer, sheet_name="First_Run_Quality_Summary", index=False)
+            if 'df_weekly' in locals():
+                df_weekly.to_excel(writer, sheet_name="Weekly_FPY_Trend", index=False)
             if 'df_squareness' in locals() and not df_squareness.empty:
                 df_squareness.to_excel(writer, sheet_name="Squareness_Analysis", index=False)
         processed_data = output.getvalue()
