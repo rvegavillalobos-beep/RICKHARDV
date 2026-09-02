@@ -274,7 +274,7 @@ if uploaded_file is not None:
             st.dataframe(style_report(df_summary, spec_limit), use_container_width=True)
 
         with tab2:
-            st.subheader("📈 Visualización Geométrica Interactiva (Simulación & Exageración)")
+            st.subheader("📈 Visualización Geométrica Real (Con Factor de Exageración)")
             
             if not df_summary.empty:
                 col_ctrl1, col_ctrl2 = st.columns(2)
@@ -292,25 +292,28 @@ if uploaded_file is not None:
                     exaggeration = st.slider(
                         "Factor de Exageración de Desviaciones:",
                         min_value=1.0,
-                        max_value=50.0,
-                        value=5.0,
-                        step=1.0,
-                        help="Multiplica las desviaciones para visualizar deformaciones sutiles."
+                        max_value=20.0,
+                        value=1.0,
+                        step=0.5,
+                        help="En 1.0 muestra las coordenadas reales exactas. Valores mayores amplifican visualmente las desviaciones."
                     )
                 
                 df_to_plot = df_summary.tail(num_to_graph)
                 
                 fig = go.Figure()
                 
-                # Marco nominal 50x30 mm local (X: -25 a 25, Y: -15 a 15)
-                nom_x = [-25, -25, 25, 25, -25]
-                nom_y = [-15, 15, 15, -15, -15]
-                fig.add_trace(go.Scatter(
-                    x=nom_x, y=nom_y,
-                    mode="lines",
-                    name="Perfil Nominal (50x30 mm)",
-                    line=dict(color="green", width=3, dash="dash")
-                ))
+                # Dibujar perfiles nominales reales según los tipos presentes
+                present_types = df_to_plot["BatteryType"].unique()
+                for b_type in present_types:
+                    nom = get_nominal_coordinates(b_type)
+                    nom_x = [nom["RL_X"], nom["FL_X"], nom["FR_X"], nom["RR_X"], nom["RL_X"]]
+                    nom_y = [nom["RL_Y"], nom["FL_Y"], nom["FR_Y"], nom["RR_Y"], nom["RL_Y"]]
+                    fig.add_trace(go.Scatter(
+                        x=nom_x, y=nom_y,
+                        mode="lines",
+                        name=f"Nominal Real ({b_type})",
+                        line=dict(color="green", width=2, dash="dash")
+                    ))
                 
                 for _, row in df_to_plot.iterrows():
                     fl_x, fl_y = row["FL_X"], row["FL_Y"]
@@ -321,20 +324,23 @@ if uploaded_file is not None:
                     if pd.isna(fl_x) or pd.isna(fr_x) or pd.isna(rl_x) or pd.isna(rr_x):
                         continue
                         
-                    plot_rl_x = -25.0 + (rl_x * exaggeration)
-                    plot_rl_y = -15.0 + (rl_y * exaggeration)
+                    nom = get_nominal_coordinates(row["BatteryType"])
                     
-                    plot_fl_x = -25.0 + (fl_x * exaggeration)
-                    plot_fl_y = 15.0 + (fl_y * exaggeration)
+                    # Coordenada Real = Nominal + (Desviación * Factor de Exageración)
+                    act_rl_x = nom["RL_X"] + (rl_x * exaggeration)
+                    act_rl_y = nom["RL_Y"] + (rl_y * exaggeration)
                     
-                    plot_fr_x = 25.0 + (fr_x * exaggeration)
-                    plot_fr_y = 15.0 + (fr_y * exaggeration)
+                    act_fl_x = nom["FL_X"] + (fl_x * exaggeration)
+                    act_fl_y = nom["FL_Y"] + (fl_y * exaggeration)
                     
-                    plot_rr_x = 25.0 + (rr_x * exaggeration)
-                    plot_rr_y = -15.0 + (rr_y * exaggeration)
+                    act_fr_x = nom["FR_X"] + (fr_x * exaggeration)
+                    act_fr_y = nom["FR_Y"] + (fr_y * exaggeration)
                     
-                    mod_x = [plot_rl_x, plot_fl_x, plot_fr_x, plot_rr_x, plot_rl_x]
-                    mod_y = [plot_rl_y, plot_fl_y, plot_fr_y, plot_rr_y, plot_rl_y]
+                    act_rr_x = nom["RR_X"] + (rr_x * exaggeration)
+                    act_rr_y = nom["RR_Y"] + (rr_y * exaggeration)
+                    
+                    mod_x = [act_rl_x, act_fl_x, act_fr_x, act_rr_x, act_rl_x]
+                    mod_y = [act_rl_y, act_fl_y, act_fr_y, act_rr_y, act_rl_y]
                     
                     status = row["Status"]
                     color = "red" if status == "FAIL" else "gray"
@@ -354,18 +360,18 @@ if uploaded_file is not None:
                             f"<b>PartID:</b> {row['PartID']}<br>"
                             f"<b>Run:</b> {row['RunNum']}<br>"
                             f"<b>Status:</b> {status}<br>"
+                            f"<b>Tipo:</b> {row['BatteryType']}<br>"
                             f"<b>Exageración:</b> {exaggeration}x<br>"
                             f"<b>Fecha:</b> {row['Date']}<extra></extra>"
                         )
                     ))
                 
                 fig.update_layout(
-                    xaxis_title="Eje X Local (mm)",
-                    yaxis_title="Eje Y Local (mm)",
-                    height=650,
-                    title=f"Geometría Real - Últimos {num_to_graph} Módulos (Exageración {exaggeration}x) vs Nominal",
-                    xaxis=dict(range=[-35, 35]),
-                    yaxis=dict(range=[-25, 25], scaleanchor="x", scaleratio=1),
+                    xaxis_title="Eje X Global [mm]",
+                    yaxis_title="Eje Y Global [mm]",
+                    height=700,
+                    title=f"Geometría Real - Últimos {num_to_graph} Módulos (Exageración {exaggeration}x)",
+                    yaxis=dict(scaleanchor="x", scaleratio=1),
                     legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02)
                 )
                 
