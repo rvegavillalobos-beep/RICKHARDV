@@ -33,8 +33,8 @@ def extract_corner_index(feature_name: str) -> int:
   # RL (Rear-Left): L0324, L324 o L316 sin 'aa' (ej. da, dj, cc, bd)
   if ("l324" in f or "l0324" in f or "l316" in f) and "aa" not in f:
     return 3  
-  # RR (Rear-Right): Lados derechos (r302, r301, r309, r308) sin 'aa' (ej. da, dj, cc, bd)
-  if ("r302" in f | "r301" in f | "r0301" in f | "r309" in f | "r308" in f) and "aa" not in f:
+  # RR (Rear-Right): Lados derechos sin 'aa' (ej. da, dj, cc, bd)
+  if any(sub in f for sub in ["r302", "r301", "r0301", "r309", "r308"]) and "aa" not in f:
     return 4  
   
   # Fallbacks generales por seguridad
