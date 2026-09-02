@@ -14,14 +14,13 @@ st.set_page_config(
     layout="wide"
 )
 
-# Estado global para transferencia de selección entre pestañas
 if "selected_part_id" not in st.session_state:
     st.session_state["selected_part_id"] = None
 
 st.title("🔋 Battery Dimensional Analytics & Quality Engine")
 
 # -----------------------------------------------------------------------------
-# NOMINALES Y GEOMETRÍA EXTRAÍDAS DEL FIXTURE
+# NOMINALES Y TOLERANCIAS GEOMÉTRICAS
 # -----------------------------------------------------------------------------
 NOMINALS = {
     "TYPE S": {
@@ -41,6 +40,7 @@ NOMINALS = {
 MAX_DIAG_DELTA_TOL = 1.5
 ANGULAR_DEV_TOL = 0.15
 DIM_DELTA_TOL = 0.8
+POINT_DEV_TOL = 3.0  # Umbral para resaltado fuera de especificación por punto
 
 def parse_english_datetime(date_str):
     if pd.isna(date_str):
@@ -55,8 +55,8 @@ def determine_battery_type(part_id, feature_name):
     p_id = str(part_id).upper()
     f_name = str(feature_name).upper()
     if "_DJ" in p_id or "_DJ" in f_name or "_M" in p_id or p_id.endswith("M"):
-        return "TYPE M"
-    return "TYPE S"
+        return "Type M"
+    return "Type S"
 
 def extract_corner_index(feature_name, battery_type):
     f_name = str(feature_name).lower().strip()
@@ -66,7 +66,7 @@ def extract_corner_index(feature_name, battery_type):
     if "72_r0301_aa" in f_name or "fr" in f_name or "c2" in f_name:
         return "FR"
     
-    if battery_type == "TYPE M":
+    if battery_type == "Type M":
         if "72_l0324_dj" in f_name or "rl" in f_name or "c3" in f_name:
             return "RL"
         if "72_r0301_dj" in f_name or "rr" in f_name or "c4" in f_name:
@@ -138,16 +138,22 @@ def process_data(file):
     
     df["BatteryType"] = df.apply(lambda r: determine_battery_type(r["PartID"], r.get("FeatureName", "")), axis=1)
     df["Corner"] = df.apply(lambda r: extract_corner_index(r.get("FeatureName", ""), r["BatteryType"]), axis=1)
-    df["DateFormatted"] = df["DateTime"].dt.strftime('%Y-%m-%d').fillna("Unknown")
+    df["DateFormatted"] = df["DateTime"].dt.strftime('%d/%m/%Y').fillna("Unknown")
     df["CW"] = df["DateTime"].apply(lambda dt: f"CW{dt.isocalendar().week:02d}" if pd.notna(dt) else "CW00")
     
     df = df.sort_values("DateTime")
     
     modules = []
-    for (d_date, p_id), group in df.groupby(["DateFormatted", "PartID"]):
+    part_run_counter = {}
+    
+    for (d_date, p_id), group in df.groupby(["DateFormatted", "PartID"], sort=False):
         b_type = group["BatteryType"].iloc[0]
         cw = group["CW"].iloc[0]
         dt_val = group["DateTime"].iloc[0]
+        
+        # Conteo de corridas por módulo (Run #)
+        part_run_counter[p_id] = part_run_counter.get(p_id, 0) + 1
+        run_label = f"Run {part_run_counter[p_id]}"
         
         fl_row, fr_row = group[group["Corner"] == "FL"], group[group["Corner"] == "FR"]
         rl_row, rr_row = group[group["Corner"] == "RL"], group[group["Corner"] == "RR"]
@@ -161,7 +167,12 @@ def process_data(file):
         rr_dx = rr_row["ValX"].values[0] if not rr_row.empty else 0.0
         rr_dy = rr_row["ValY"].values[0] if not rr_row.empty else 0.0
         
-        nom = NOMINALS.get(b_type, NOMINALS["TYPE S"])
+        # Conteo de puntos fuera de especificación (Valores absolutos mayores al umbral)
+        deviations = [fl_dx, fl_dy, fr_dx, fr_dy, rl_dx, rl_dy, rr_dx, rr_dy]
+        out_of_spec_pts = sum(1 for dev in deviations if abs(dev) >= POINT_DEV_TOL)
+        
+        nom_key = "TYPE M" if b_type == "Type M" else "TYPE S"
+        nom = NOMINALS[nom_key]
         
         d1_nom = math.sqrt((nom["RR_X"] - nom["FL_X"])**2 + (nom["RR_Y"] - nom["FL_Y"])**2)
         d2_nom = math.sqrt((nom["RL_X"] - nom["FR_X"])**2 + (nom["RL_Y"] - nom["FR_Y"])**2)
@@ -189,9 +200,9 @@ def process_data(file):
         diff_largo = (l_left_act - l_left_nom) - (l_right_act - l_right_nom)
         angle_fl_dev = angle_fl_act - angle_fl_nom
         
-        if delta_diags > MAX_DIAG_DELTA_TOL:
+        if delta_diags > MAX_DIAG_DELTA_TOL or out_of_spec_pts > 0:
             status_str = "DEFORMED"
-            overall_pass = "FAILED (NOK)"
+            overall_pass = "FAIL"
             if abs(angle_fl_dev) > ANGULAR_DEV_TOL and abs(diff_ancho) < DIM_DELTA_TOL:
                 detail_str = f"Parallelogram Distortion (Tilt: {angle_fl_dev:+.2f}°)"
             elif abs(diff_ancho) >= DIM_DELTA_TOL:
@@ -199,19 +210,21 @@ def process_data(file):
             elif abs(diff_largo) >= DIM_DELTA_TOL:
                 detail_str = f"Trapezoidal Length Var (Delta: {diff_largo:+.2f} mm)"
             else:
-                detail_str = f"Combined Asymmetry (Diag Delta: {delta_diags:.2f} mm)"
+                detail_str = f"Out-of-Spec / Asymmetry (Diag Delta: {delta_diags:.2f} mm)"
         else:
             status_str = "SQUARE OK"
-            overall_pass = "PASSED (OK)"
+            overall_pass = "PASS"
             detail_str = "Within Tolerance"
             
         modules.append({
-            "DateTime": dt_val, "Date": d_date, "CW": cw, "PartID": p_id, "BatteryType": b_type,
-            "FL_DX": fl_dx, "FL_DY": fl_dy, "FR_DX": fr_dx, "FR_DY": fr_dy,
-            "RL_DX": rl_dx, "RL_DY": rl_dy, "RR_DX": rr_dx, "RR_DY": rr_dy,
+            "DateTime": dt_val, "Date": d_date, "Calendar Week": cw, "Part ID (Module)": p_id, 
+            "Type": b_type, "Run #": run_label,
+            "FL_X": fl_dx, "FL_Y": fl_dy, "FR_X": fr_dx, "FR_Y": fr_dy,
+            "RL_X": rl_dx, "RL_Y": rl_dy, "RR_X": rr_dx, "RR_Y": rr_dy,
+            "Out-of-Spec Points": out_of_spec_pts, "Module Status": overall_pass,
             "Diag1_Act": d1_act, "Diag2_Act": d2_act, "DeltaDiagonals": delta_diags,
             "WidthDelta": diff_ancho, "LengthDelta": diff_largo, "AngleDevFL": angle_fl_dev,
-            "SquareStatus": status_str, "OverallPass": overall_pass, "RootCause": detail_str
+            "SquareStatus": status_str, "RootCause": detail_str
         })
             
     return df, pd.DataFrame(modules)
@@ -228,14 +241,14 @@ if uploaded_file is not None:
     if df_modules.empty:
         st.error("No se encontraron registros válidos.")
     else:
-        cw_list = sorted(df_modules["CW"].unique())
+        cw_list = sorted(df_modules["Calendar Week"].unique())
         selected_cw = st.sidebar.multiselect("Calendar Week (CW)", options=cw_list, default=cw_list)
-        type_list = sorted(df_modules["BatteryType"].unique())
+        type_list = sorted(df_modules["Type"].unique())
         selected_type = st.sidebar.multiselect("Tipo de Batería", options=type_list, default=type_list)
         
         df_filtered = df_modules[
-            (df_modules["CW"].isin(selected_cw)) & 
-            (df_modules["BatteryType"].isin(selected_type))
+            (df_modules["Calendar Week"].isin(selected_cw)) & 
+            (df_modules["Type"].isin(selected_type))
         ]
         
         tab1, tab2, tab3 = st.tabs([
@@ -245,56 +258,73 @@ if uploaded_file is not None:
         ])
         
         # ---------------------------------------------------------------------
-        # TAB 1: EXECUTIVE QUALITY DASHBOARD
+        # TAB 1: EXECUTIVE QUALITY DASHBOARD (REPLICANDO LA TABLA Y GRÁFICOS)
         # ---------------------------------------------------------------------
         with tab1:
-            st.subheader("📊 Executive Quality & FPY Performance")
+            st.subheader("📊 Executive Quality & Dimensional Inspection Log")
             
             total_mod = len(df_filtered)
-            pass_mod = len(df_filtered[df_filtered["OverallPass"] == "PASSED (OK)"])
-            fail_mod = len(df_filtered[df_filtered["OverallPass"] == "FAILED (NOK)"])
+            pass_mod = len(df_filtered[df_filtered["Module Status"] == "PASS"])
+            fail_mod = len(df_filtered[df_filtered["Module Status"] == "FAIL"])
             fpy_global = (pass_mod / total_mod * 100) if total_mod > 0 else 0.0
             
-            # 1. TABLA SUPERIOR DE RESUMEN EJECUTIVO
-            st.markdown("##### 📋 FIRST-RUN QUALITY SUMMARY")
-            summary_data = {
-                "Metric": [
-                    "Unique Modules (Run)", 
-                    "Passed First-Run (OK)", 
-                    "Failed First-Run (NOK)", 
-                    "First-Pass Yield (FPY)"
-                ],
-                "Value": [
-                    f"{total_mod}", 
-                    f"{pass_mod}", 
-                    f"{fail_mod}", 
-                    f"{fpy_global:.1f}%"
-                ]
-            }
-            df_kpi_table = pd.DataFrame(summary_data)
+            # 1. RESUMEN EJECUTIVO KPI
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("Total Runs", f"{total_mod}")
+            k2.metric("Passed (OK)", f"{pass_mod}")
+            k3.metric("Failed (NOK)", f"{fail_mod}")
+            k4.metric("First-Pass Yield (FPY)", f"{fpy_global:.1f}%")
             
+            st.divider()
+
+            # 2. TABLA PRINCIPAL (ESTILO MACRO DE EXCEL EN LA IMAGEN)
+            st.markdown("### 📋 Dimensional Measurement Log")
+            st.caption("Resaltado automático de desviaciones extremas (<-3.00 mm o >3.00 mm) y estatus del módulo.")
+
+            main_display_cols = [
+                "Date", "Calendar Week", "Part ID (Module)", "Type", "Run #",
+                "FL_X", "FL_Y", "FR_X", "FR_Y", "RL_X", "RL_Y", "RR_X", "RR_Y",
+                "Out-of-Spec Points", "Module Status"
+            ]
+            
+            df_table = df_filtered[main_display_cols].copy()
+
+            def style_excel_table(val):
+                if val == "FAIL":
+                    return 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
+                if val == "PASS":
+                    return 'background-color: #d4edda; color: #155724; font-weight: bold;'
+                if isinstance(val, (int, float)):
+                    if abs(val) >= POINT_DEV_TOL and val != 0:
+                        return 'color: #dc3545; font-weight: bold;'
+                return ''
+
+            format_dict = {
+                "FL_X": "{:.2f}", "FL_Y": "{:.2f}",
+                "FR_X": "{:.2f}", "FR_Y": "{:.2f}",
+                "RL_X": "{:.2f}", "RL_Y": "{:.2f}",
+                "RR_X": "{:.2f}", "RR_Y": "{:.2f}",
+                "Out-of-Spec Points": "{:d}"
+            }
+
             st.dataframe(
-                df_kpi_table,
+                df_table.style.map(style_excel_table).format(format_dict),
                 use_container_width=True,
                 hide_index=True,
-                column_config={
-                    "Metric": st.column_config.TextColumn("Quality Metric", width="large"),
-                    "Value": st.column_config.TextColumn("Total Value", width="medium")
-                }
+                height=480
             )
 
             st.divider()
 
-            # 2. GRÁFICO DE BARRAS APILADAS Y TABLA DESGLOSE SEMANAL
+            # 3. GRÁFICO DE BARRAS APILADAS Y DESGLOSE SEMANAL
             col_chart, col_table = st.columns([1, 1], gap="large")
             
-            cw_summary = df_filtered.groupby("CW").agg(
-                Total=('PartID', 'count'),
-                Passed=('OverallPass', lambda x: (x == 'PASSED (OK)').sum()),
-                Failed=('OverallPass', lambda x: (x == 'FAILED (NOK)').sum())
+            cw_summary = df_filtered.groupby("Calendar Week").agg(
+                Total=('Part ID (Module)', 'count'),
+                Passed=('Module Status', lambda x: (x == 'PASS').sum()),
+                Failed=('Module Status', lambda x: (x == 'FAIL').sum())
             ).reset_index()
             
-            cw_summary["PassRate"] = (cw_summary["Passed"] / cw_summary["Total"]) * 100
             cw_summary["PassPct"] = (cw_summary["Passed"] / cw_summary["Total"]) * 100
             cw_summary["FailPct"] = (cw_summary["Failed"] / cw_summary["Total"]) * 100
 
@@ -302,79 +332,43 @@ if uploaded_file is not None:
                 st.markdown("### 📈 Weekly First-Pass Yield Trend (%)")
                 
                 fig_stacked = go.Figure()
-                
-                # Passed (Verde Muted)
                 fig_stacked.add_trace(go.Bar(
-                    x=cw_summary["CW"], 
-                    y=cw_summary["PassPct"],
-                    name="Passed (OK)", 
-                    marker_color="#2E7D32"
+                    x=cw_summary["Calendar Week"], y=cw_summary["PassPct"],
+                    name="Passed (OK)", marker_color="#2E7D32"
+                ))
+                fig_stacked.add_trace(go.Bar(
+                    x=cw_summary["Calendar Week"], y=cw_summary["FailPct"],
+                    name="Failed (NOK)", marker_color="#C62828"
                 ))
                 
-                # Failed (Rojo Terracota Muted)
-                fig_stacked.add_trace(go.Bar(
-                    x=cw_summary["CW"], 
-                    y=cw_summary["FailPct"],
-                    name="Failed (NOK)", 
-                    marker_color="#C62828"
-                ))
-                
-                # Línea Horizontal FPY Global
                 fig_stacked.add_hline(
-                    y=fpy_global, 
-                    line_dash="dash", 
-                    line_color="#FFB300", 
-                    line_width=2.5,
-                    annotation_text=f"Total FPY: {fpy_global:.1f}%", 
-                    annotation_position="top right",
-                    annotation_font=dict(size=12, color="#FFB300", family="sans-serif")
+                    y=fpy_global, line_dash="dash", line_color="#FFB300", line_width=2.5,
+                    annotation_text=f"Total FPY: {fpy_global:.1f}%", annotation_position="top right"
                 )
 
                 fig_stacked.update_layout(
-                    barmode='stack',
-                    yaxis_title="Percentage (%)",
-                    yaxis=dict(range=[0, 105]),
-                    height=450,
-                    margin=dict(l=20, r=20, t=30, b=20),
-                    legend=dict(
-                        orientation="h", 
-                        yanchor="bottom", 
-                        y=1.02, 
-                        xanchor="right", 
-                        x=1
-                    ),
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(0,0,0,0)'
+                    barmode='stack', yaxis_title="Percentage (%)", yaxis=dict(range=[0, 105]),
+                    height=380, margin=dict(l=20, r=20, t=30, b=20),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                 )
                 
                 st.plotly_chart(fig_stacked, use_container_width=True)
 
             with col_table:
                 st.markdown("### 🗓️ WEEKLY FPY BREAKDOWN")
-                
                 display_cw = cw_summary.rename(columns={
-                    "CW": "Calendar Week",
-                    "Total": "Unique Modules",
-                    "Passed": "Passed (OK)",
-                    "Failed": "Failed (NOK)",
-                    "PassRate": "Pass Rate (%)"
-                })[["Calendar Week", "Unique Modules", "Passed (OK)", "Failed (NOK)", "Pass Rate (%)"]]
+                    "Calendar Week": "Calendar Week", "Total": "Total Runs",
+                    "Passed": "Passed (OK)", "Failed": "Failed (NOK)", "PassPct": "Pass Rate (%)"
+                })[["Calendar Week", "Total Runs", "Passed (OK)", "Failed (NOK)", "Pass Rate (%)"]]
                 
                 st.dataframe(
                     display_cw,
                     use_container_width=True,
                     hide_index=True,
-                    height=450,
+                    height=380,
                     column_config={
-                        "Calendar Week": st.column_config.TextColumn("Calendar Week", width="small"),
-                        "Unique Modules": st.column_config.NumberColumn("Unique Modules", format="%d"),
-                        "Passed (OK)": st.column_config.NumberColumn("Passed (OK)", format="%d"),
-                        "Failed (NOK)": st.column_config.NumberColumn("Failed (NOK)", format="%d"),
                         "Pass Rate (%)": st.column_config.ProgressColumn(
-                            "Pass Rate (%)",
-                            format="%.1f%%",
-                            min_value=0,
-                            max_value=100
+                            "Pass Rate (%)", format="%.1f%%", min_value=0, max_value=100
                         )
                     }
                 )
@@ -385,7 +379,7 @@ if uploaded_file is not None:
         with tab2:
             st.subheader("📐 Vector Shift Visualizer")
             
-            all_parts = list(df_filtered["PartID"].unique())
+            all_parts = list(df_filtered["Part ID (Module)"].unique())
             default_idx = 0
             if st.session_state["selected_part_id"] in all_parts:
                 default_idx = all_parts.index(st.session_state["selected_part_id"])
@@ -394,50 +388,51 @@ if uploaded_file is not None:
             selected_part = col_sel.selectbox("Seleccionar Módulo (Part ID):", all_parts, index=default_idx)
             scale = col_scale.slider("Factor de Magnificación:", min_value=1, max_value=50, value=20)
             
-            row = df_filtered[df_filtered["PartID"] == selected_part].iloc[0]
+            row = df_filtered[df_filtered["Part ID (Module)"] == selected_part].iloc[0]
             
             st.markdown("---")
             m1, m2, m3, m4, m5, m6 = st.columns(6)
             
-            pass_color = "🟢 PASS" if row["OverallPass"] == "PASSED (OK)" else "🔴 FAIL"
+            pass_color = "🟢 PASS" if row["Module Status"] == "PASS" else "🔴 FAIL"
             square_color = "🟢 OK" if row["SquareStatus"] == "SQUARE OK" else "🔴 DEFORMED"
             
             m1.metric("Overall Result", pass_color)
             m2.metric("Squareness", square_color)
-            m3.metric("Type", row["BatteryType"])
-            m4.metric("Calendar Week", row["CW"])
+            m3.metric("Type", row["Type"])
+            m4.metric("Calendar Week", row["Calendar Week"])
             m5.metric("Date", str(row["Date"]))
             m6.metric("Root Cause", row["RootCause"])
             st.markdown("---")
             
-            nom = NOMINALS[row["BatteryType"]]
+            nom_key = "TYPE M" if row["Type"] == "Type M" else "TYPE S"
+            nom = NOMINALS[nom_key]
             
             x_nom = [nom["RL_X"], nom["RR_X"], nom["FR_X"], nom["FL_X"], nom["RL_X"]]
             y_nom = [nom["RL_Y"], nom["RR_Y"], nom["FR_Y"], nom["FL_Y"], nom["RL_Y"]]
             
             x_real = [
-                nom["RL_X"] + row["RL_DX"] * scale,
-                nom["RR_X"] + row["RR_DX"] * scale,
-                nom["FR_X"] + row["FR_DX"] * scale,
-                nom["FL_X"] + row["FL_DX"] * scale,
-                nom["RL_X"] + row["RL_DX"] * scale
+                nom["RL_X"] + row["RL_X"] * scale,
+                nom["RR_X"] + row["RR_X"] * scale,
+                nom["FR_X"] + row["FR_X"] * scale,
+                nom["FL_X"] + row["FL_X"] * scale,
+                nom["RL_X"] + row["RL_X"] * scale
             ]
             y_real = [
-                nom["RL_Y"] + row["RL_DY"] * scale,
-                nom["RR_Y"] + row["RR_DY"] * scale,
-                nom["FR_Y"] + row["FR_DY"] * scale,
-                nom["FL_Y"] + row["FL_DY"] * scale,
-                nom["RL_Y"] + row["RL_DY"] * scale
+                nom["RL_Y"] + row["RL_Y"] * scale,
+                nom["RR_Y"] + row["RR_Y"] * scale,
+                nom["FR_Y"] + row["FR_Y"] * scale,
+                nom["FL_Y"] + row["FL_Y"] * scale,
+                nom["RL_Y"] + row["RL_Y"] * scale
             ]
             
             fig = go.Figure()
             fig.add_trace(go.Scatter(x=x_nom, y=y_nom, mode='lines', name='Nominal Fixture', line=dict(color='gray', dash='dash')))
             
-            color = 'red' if row["SquareStatus"] == "DEFORMED" else 'green'
+            color = 'red' if row["Module Status"] == "FAIL" else 'green'
             fig.add_trace(go.Scatter(x=x_real, y=y_real, mode='lines+markers', name=f'Medido ({scale}x Scale)', line=dict(color=color, width=3)))
             
             fig.update_layout(
-                title=f"Módulo: {row['PartID']} ({row['BatteryType']})",
+                title=f"Módulo: {row['Part ID (Module)']} ({row['Type']})",
                 xaxis_title="Eje X Fixture (mm)", yaxis_title="Eje Y Fixture (mm)",
                 yaxis=dict(scaleanchor="x", scaleratio=1), width=800, height=700
             )
@@ -451,21 +446,20 @@ if uploaded_file is not None:
             st.info("💡 **Tip:** Selecciona cualquier fila en la tabla para cargar automáticamente ese módulo en el **Vector Shift Visualizer**.")
             
             def highlight_deformed(val):
-                if val == "DEFORMED" or val == "FAILED (NOK)": 
+                if val == "DEFORMED" or val == "FAIL": 
                     return 'background-color: #ffc7ce; color: #9c0006; font-weight: bold;'
-                if val == "SQUARE OK" or val == "PASSED (OK)": 
+                if val == "SQUARE OK" or val == "PASS": 
                     return 'background-color: #c6efce; color: #006100;'
                 return ''
 
-            # 1. TABLA RESUMEN DE SQUARENESS
             display_df = df_filtered[[
-                "PartID", "OverallPass", "SquareStatus", "BatteryType", "CW", "Date",
+                "Part ID (Module)", "Module Status", "SquareStatus", "Type", "Calendar Week", "Date",
                 "Diag1_Act", "Diag2_Act", "DeltaDiagonals", 
                 "WidthDelta", "LengthDelta", "AngleDevFL", "RootCause"
             ]]
 
             selection = st.dataframe(
-                display_df.style.map(highlight_deformed, subset=["SquareStatus", "OverallPass"])
+                display_df.style.map(highlight_deformed, subset=["SquareStatus", "Module Status"])
                 .format({
                     "Diag1_Act": "{:.2f}", "Diag2_Act": "{:.2f}",
                     "DeltaDiagonals": "{:.2f}", "WidthDelta": "{:.2f}",
@@ -479,20 +473,16 @@ if uploaded_file is not None:
             selected_rows = selection.get("selection", {}).get("rows", [])
             if selected_rows:
                 selected_index = selected_rows[0]
-                part_selected = display_df.iloc[selected_index]["PartID"]
+                part_selected = display_df.iloc[selected_index]["Part ID (Module)"]
                 st.session_state["selected_part_id"] = part_selected
                 st.success(f"🎯 Módulo seleccionado: **{part_selected}**. Ve a la pestaña **Vector Shift Visualizer** para inspeccionarlo.")
 
             st.divider()
 
-            # 2. TABLA DE MEDICIONES DETALLADAS (Detailed Measurement Log)
             st.subheader("📄 Detailed Measurement Log (Raw Features)")
-            
-            # Filtrar mediciones detalladas según los módulos seleccionados
-            filtered_part_ids = df_filtered["PartID"].unique()
+            filtered_part_ids = df_filtered["Part ID (Module)"].unique()
             df_raw_filtered = df_raw[df_raw["PartID"].isin(filtered_part_ids)].copy()
             
-            # Formatear la fecha si existe la columna DateTime
             if "DateTime" in df_raw_filtered.columns:
                 df_raw_filtered["DateTime"] = df_raw_filtered["DateTime"].dt.strftime('%Y-%m-%d %H:%M:%S')
 
