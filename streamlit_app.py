@@ -290,18 +290,26 @@ if uploaded_file is not None:
                 )
                 st.plotly_chart(fig_stacked, use_container_width=True)
                 
-            with col_chart2:
+with col_chart2:
                 st.markdown("### ⚠️ Root Cause Breakdown (Defect Pareto)")
                 rc_counts = df_filtered[df_filtered["SquareStatus"] == "DEFORMED"]["RootCause"].value_counts().reset_index()
                 rc_counts.columns = ["RootCause", "Count"]
                 
                 if not rc_counts.empty:
                     fig_pareto = px.bar(
-                        rc_counts, x="Count", y="RootCause", orientation='h',
-                        color="Count", color_continuous_scale="Reds",
+                        rc_counts, 
+                        x="Count", 
+                        y="RootCause", 
+                        orientation='h',
+                        color="Count", 
+                        color_continuous_scale="Reds",
                         title="Frecuencia de Causa Raíz en Deformaciones"
                     )
-                    fig_pareto.update_layout(yaxis=dict(autorange="reverse"), coloraxis_showscale=False)
+                    fig_pareto.update_layout(
+                        yaxis=dict(autorange="reverse"),
+                        showlegend=False
+                    )
+                    fig_pareto.update_coloraxes(showscale=False)
                     st.plotly_chart(fig_pareto, use_container_width=True)
                 else:
                     st.success("🎉 No hay módulos deformados en la selección actual.")
