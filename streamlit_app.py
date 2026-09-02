@@ -23,17 +23,18 @@ def determine_battery_type(part_id: str, feature_name: str) -> str:
 
 def extract_corner_index(feature_name: str) -> int:
   f = str(feature_name).lower().strip()
-  if "l0324" in f and "aa" in f:
-     return 1  # FL
-  elif "r0301" in f and "aa" in f:
-     return 2  # FR
-  elif "l0324" in f and ("dj" in f or "da" in f or "cc" in f or "bd" in f):
-     return 3  # RL
-  elif ("r0301" in f or "r302" in f or "r309" in f or "r308" in f) and (
-      "dj" in f or "da" in f or "cc" in f or "bd" in f
-  ):
-     return 4  # RR
   
+  # Mapeo exacto basado en nomenclaturas CAD (Type S y Type M)
+  if "l324_aa" in f or "l0324_aa" in f:
+    return 1  # FL (Front-Left)
+  if "r301_aa" in f or "r0301_aa" in f:
+    return 2  # FR (Front-Right)
+  if "l324_da" in f or "l0324_dj" in f or "l324_cc" in f or "l316" in f:
+    return 3  # RL (Rear-Left)
+  if "r302_da" in f or "r301_dj" in f or "r309" in f or "r308" in f or "r309_cc" in f or "r308_bd" in f:
+    return 4  # RR (Rear-Right)
+  
+  # Fallbacks generales por seguridad
   if "fl" in f: return 1
   if "fr" in f: return 2
   if "rl" in f: return 3
@@ -58,16 +59,26 @@ def get_nominal_coordinates(bat_type: str):
     }
 
 
-def calculate_corner_angle(xa, ya, xb, yb, xc, yc):
-  v_ab_x, v_ab_y = xb - xa, yb - ya
-  v_ac_x, v_ac_y = xc - xa, yc - ya
-  dot_product = (v_ab_x * v_ac_x) + (v_ab_y * v_ac_y)
-  mag_ab = np.sqrt(v_ab_x**2 + v_ab_y**2)
-  mag_ac = np.sqrt(v_ac_x**2 + v_ac_y**2)
-  if mag_ab == 0 or mag_ac == 0:
-    return 0.0
-  cos_theta = np.clip(dot_product / (mag_ab * mag_ac), -1.0, 1.0)
-  return float(np.degrees(np.arccos(cos_theta)))
+def style_report(df, limit):
+  cols_to_check = ['FL_X', 'FL_Y', 'FR_X', 'FR_Y', 'RL_X', 'RL_Y', 'RR_X', 'RR_Y']
+  def apply_styles(row):
+    styles = [''] * len(row)
+    for i, col in enumerate(row.index):
+      if col in cols_to_check:
+        val = row[col]
+        if val is not None and not pd.isna(val):
+          try:
+            if abs(float(val)) > limit:
+              styles[i] = 'background-color: #ff4d4d; color: white; font-weight: bold;'
+          except:
+            pass
+      if col == 'Status':
+        if str(row[col]) == 'FAIL':
+          styles[i] = 'background-color: #ff4d4d; color: white; font-weight: bold;'
+        elif str(row[col]) == 'PASS':
+          styles[i] = 'background-color: #2eb82e; color: white; font-weight: bold;'
+    return styles
+  return df.style.apply(apply_styles, axis=1)
 
 
 # --- INTERFAZ STREAMLIT ---
@@ -110,7 +121,7 @@ if uploaded_file is not None:
     grouped = df_raw.groupby([time_col, part_col])
 
     for (t_val, p_val), group in grouped:
-      first_row = group.iloc[0]  # <--- CORREGIDO AQUÍ
+      first_row = group.iloc[0]
       full_dt = first_row["ParsedDate"]
       cal_week = first_row["CalendarWeek"]
       bat_type = first_row["BatteryType"]
@@ -142,6 +153,17 @@ if uploaded_file is not None:
 
     df_summary = pd.DataFrame(modules_data)
 
+    # Asignar RunNum cronológico por cada PartID y ordenar globalmente por fecha
+    df_summary = df_summary.sort_values(by=["PartID", "Date"]).reset_index(drop=True)
+    df_summary["RunNum"] = df_summary.groupby("PartID").cumcount() + 1
+    df_summary = df_summary.sort_values(by="Date", ascending=True).reset_index(drop=True)
+
+    # Reordenar columnas para que RunNum aparezca al principio
+    cols = ["Date", "CalendarWeek", "PartID", "BatteryType", "RunNum", 
+            "FL_X", "FL_Y", "FR_X", "FR_Y", "RL_X", "RL_Y", "RR_X", "RR_Y", 
+            "OutOfSpecCount", "Status"]
+    df_summary = df_summary[cols]
+
     tab1, tab2, tab3 = st.tabs([
         "📊 Resumen General (1 Línea por Batería)", 
         "📈 Gráfica Geométrica Interactiva", 
@@ -149,8 +171,8 @@ if uploaded_file is not None:
     ])
 
     with tab1:
-      st.subheader("Reporte General de Módulos (Todas las esquinas por medición)")
-      st.dataframe(df_summary, use_container_width=True)
+      st.subheader("Reporte General de Módulos (Orden Cronológico)")
+      st.dataframe(style_report(df_summary, spec_limit), use_container_width=True)
 
       col1, col2, col3 = st.columns(3)
       total_modules = len(df_summary)
@@ -165,9 +187,9 @@ if uploaded_file is not None:
       st.subheader("Visualización Geométrica por Batería")
       if not df_summary.empty:
         selected_idx = st.selectbox(
-            "Selecciona una Batería (PartID y Fecha):", 
+            "Selecciona una Batería (Fecha, PartID y Run):", 
             df_summary.index, 
-            format_func=lambda i: f"{df_summary.loc[i, 'Date']} | {df_summary.loc[i, 'PartID']} ({df_summary.loc[i, 'Status']})"
+            format_func=lambda i: f"{df_summary.loc[i, 'Date']} | {df_summary.loc[i, 'PartID']} (Run {df_summary.loc[i, 'RunNum']}) [{df_summary.loc[i, 'Status']}]"
         )
         row_sel = df_summary.loc[selected_idx]
         
@@ -203,7 +225,7 @@ if uploaded_file is not None:
 
         fig.update_layout(
             xaxis_title="Eje X (mm)", yaxis_title="Eje Y (mm)",
-            height=500, title=f"Batería: {row_sel['PartID']}"
+            height=500, title=f"Batería: {row_sel['PartID']} (Run {row_sel['RunNum']})"
         )
         st.plotly_chart(fig, use_container_width=True)
 
@@ -234,7 +256,9 @@ if uploaded_file is not None:
         status = "DEFORMED" if delta_diags > max_diag_tol else "SQUARE OK"
 
         squareness_records.append({
+            "Date": row["Date"],
             "PartID": row["PartID"],
+            "RunNum": row["RunNum"],
             "BatteryType": row["BatteryType"],
             "Diag Delta [mm]": round(delta_diags, 2),
             "Squareness Status": status,
