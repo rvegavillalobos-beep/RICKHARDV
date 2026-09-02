@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import math
 
 # -----------------------------------------------------------------------------
 # CONFIGURACIÓN DE PÁGINA
@@ -16,11 +17,31 @@ st.title("🔋 Battery Dimensional Analytics & Inspection Engine")
 st.markdown("Herramienta avanzada para análisis de distorsión geométrica, Vector Shift y FPY.")
 
 # -----------------------------------------------------------------------------
-# FUNCIONES AUXILIARES (ETL Y GEOMETRÍA)
+# NOMINALES Y GEOMETRÍA EXTRAÍDAS DEL FIXTURE
 # -----------------------------------------------------------------------------
+NOMINALS = {
+    "TYPE S": {
+        "FL_X": 2290.48, "FL_Y": -559.40,
+        "FR_X": 2290.48, "FR_Y": 558.90,
+        "RL_X": 997.28,  "RL_Y": -559.40,
+        "RR_X": 997.28,  "RR_Y": 511.10
+    },
+    "TYPE M": {
+        "FL_X": 2290.48, "FL_Y": -559.40,
+        "FR_X": 2290.48, "FR_Y": 558.90,
+        "RL_X": 609.31,  "RL_Y": -583.30,
+        "RR_X": 609.31,  "RR_Y": 535.00
+    }
+}
+
+# Límites de tolerancia del VBA
+MAX_DIAG_DELTA_TOL = 1.5
+CRITICAL_DIAG_DELTA = 3.0
+ANGULAR_DEV_TOL = 0.15
+DIM_DELTA_TOL = 0.8
 
 def parse_english_datetime(date_str):
-    """Parsea fechas en formato 'Aug 19, 2026 7:16pm' limpiando saltos de línea."""
+    """Parsea fechas limpiando saltos de línea."""
     if pd.isna(date_str):
         return pd.NaT
     clean_str = str(date_str).replace('\n', ' ').replace('\r', ' ').strip()
@@ -33,20 +54,18 @@ def determine_battery_type(part_id, feature_name):
     p_id = str(part_id).upper()
     f_name = str(feature_name).upper()
     if "_DJ" in p_id or "_DJ" in f_name or "_M" in p_id or p_id.endswith("M"):
-        return "Type M"
-    return "Type S"
+        return "TYPE M"
+    return "TYPE S"
 
 def extract_corner_index(feature_name, battery_type):
     f_name = str(feature_name).lower().strip()
     
-    # Esquinas Frontales (FL, FR)
     if "72_l0324_aa" in f_name or "fl" in f_name or "c1" in f_name:
         return "FL"
     if "72_r0301_aa" in f_name or "fr" in f_name or "c2" in f_name:
         return "FR"
     
-    # Esquinas Traseras (RL, RR)
-    if battery_type == "Type M":
+    if battery_type == "TYPE M":
         if "72_l0324_dj" in f_name or "rl" in f_name or "c3" in f_name:
             return "RL"
         if "72_r0301_dj" in f_name or "rr" in f_name or "c4" in f_name:
@@ -59,15 +78,29 @@ def extract_corner_index(feature_name, battery_type):
             
     return None
 
+def calculate_corner_angle(xA, yA, xB, yB, xC, yC):
+    vAB_x, vAB_y = xB - xA, yB - yA
+    vAC_x, vAC_y = xC - xA, yC - yA
+    
+    dotProduct = (vAB_x * vAC_x) + (vAB_y * vAC_y)
+    magAB = math.sqrt(vAB_x**2 + vAB_y**2)
+    magAC = math.sqrt(vAC_x**2 + vAC_y**2)
+    
+    if magAB == 0 or magAC == 0:
+        return 0.0
+        
+    cosTheta = dotProduct / (magAB * magAC)
+    cosTheta = max(-1.0, min(1.0, cosTheta))
+    
+    return math.degrees(math.acos(cosTheta))
+
 @st.cache_data
 def process_data(file):
-    # Cargar datos ignorando filas vacías iniciales
     if file.name.endswith(('.xlsx', '.xls')):
         df_raw = pd.read_excel(file, header=None)
     else:
         df_raw = pd.read_csv(file, header=None)
     
-    # Buscar dinámicamente la fila que contiene el encabezado real
     header_idx = 0
     for idx in range(min(15, len(df_raw))):
         row_values = [str(val).lower() for val in df_raw.iloc[idx].values if pd.notna(val)]
@@ -76,17 +109,14 @@ def process_data(file):
             header_idx = idx
             break
 
-    # Recargar DataFrame desde la fila del encabezado encontrada
     file.seek(0)
     if file.name.endswith(('.xlsx', '.xls')):
         df = pd.read_excel(file, skiprows=header_idx)
     else:
         df = pd.read_csv(file, skiprows=header_idx)
         
-    # Limpiar nombres de columnas
     df.columns = [str(col).strip() for col in df.columns]
     
-    # Mapeo de columnas
     col_map = {}
     for col in df.columns:
         c_lower = col.lower()
@@ -96,43 +126,20 @@ def process_data(file):
         elif c_lower in ["x deviation", "valx", "x"]: col_map[col] = "ValX"
         elif c_lower in ["y deviation", "valy", "y"]: col_map[col] = "ValY"
         elif c_lower in ["z deviation", "valz", "z"]: col_map[col] = "ValZ"
-        elif "x lower" in c_lower: col_map[col] = "X_Low"
-        elif "x upper" in c_lower: col_map[col] = "X_High"
-        elif "y lower" in c_lower: col_map[col] = "Y_Low"
-        elif "y upper" in c_lower: col_map[col] = "Y_High"
         
     df = df.rename(columns=col_map)
-    
-    # Limpieza de registros nulos
     df = df.dropna(subset=["PartID"]).copy()
-    if "Time" in df.columns:
-        df["DateTime"] = df["Time"].apply(parse_english_datetime)
-    else:
-        df["DateTime"] = pd.Timestamp.now()
-        
+    
+    df["DateTime"] = df["Time"].apply(parse_english_datetime) if "Time" in df.columns else pd.Timestamp.now()
     df["ValX"] = pd.to_numeric(df.get("ValX", 0.0), errors="coerce").fillna(0.0)
     df["ValY"] = pd.to_numeric(df.get("ValY", 0.0), errors="coerce").fillna(0.0)
     df["ValZ"] = pd.to_numeric(df.get("ValZ", 0.0), errors="coerce").fillna(0.0)
     
-    x_low = pd.to_numeric(df["X_Low"].iloc[0], errors="coerce") if "X_Low" in df.columns else -3.0
-    x_high = pd.to_numeric(df["X_High"].iloc[0], errors="coerce") if "X_High" in df.columns else 3.0
-    y_low = pd.to_numeric(df["Y_Low"].iloc[0], errors="coerce") if "Y_Low" in df.columns else -3.0
-    y_high = pd.to_numeric(df["Y_High"].iloc[0], errors="coerce") if "Y_High" in df.columns else 3.0
-    
-    df["OutOfSpec"] = (df["ValX"] < x_low) | (df["ValX"] > x_high) | \
-                      (df["ValY"] < y_low) | (df["ValY"] > y_high)
-                      
     df["BatteryType"] = df.apply(lambda r: determine_battery_type(r["PartID"], r.get("FeatureName", "")), axis=1)
     df["Corner"] = df.apply(lambda r: extract_corner_index(r.get("FeatureName", ""), r["BatteryType"]), axis=1)
-    df["DateFormatted"] = df["DateTime"].dt.strftime('%Y-%m-%d').fillna("Unknown Date")
+    df["DateFormatted"] = df["DateTime"].dt.strftime('%Y-%m-%d').fillna("Unknown")
+    df["CW"] = df["DateTime"].apply(lambda dt: f"CW{dt.isocalendar().week:02d}" if pd.notna(dt) else "CW00")
     
-    # Manejo de semanas calendario
-    def get_cw(dt):
-        if pd.isna(dt): return "CW00"
-        return f"CW{dt.isocalendar().week:02d}"
-    df["CW"] = df["DateTime"].apply(get_cw)
-    
-    # Ordenar y agrupar por módulo
     df = df.sort_values("DateTime")
     
     modules = []
@@ -141,42 +148,80 @@ def process_data(file):
         cw = group["CW"].iloc[0]
         dt_val = group["DateTime"].iloc[0]
         
-        fl_row = group[group["Corner"] == "FL"]
-        fr_row = group[group["Corner"] == "FR"]
-        rl_row = group[group["Corner"] == "RL"]
-        rr_row = group[group["Corner"] == "RR"]
+        # Desviaciones devueltas
+        fl_row, fr_row = group[group["Corner"] == "FL"], group[group["Corner"] == "FR"]
+        rl_row, rr_row = group[group["Corner"] == "RL"], group[group["Corner"] == "RR"]
         
-        fl_x = fl_row["ValX"].values[0] if not fl_row.empty else 0.0
-        fl_y = fl_row["ValY"].values[0] if not fl_row.empty else 0.0
-        fr_x = fr_row["ValX"].values[0] if not fr_row.empty else 0.0
-        fr_y = fr_row["ValY"].values[0] if not fr_row.empty else 0.0
-        rl_x = rl_row["ValX"].values[0] if not rl_row.empty else 0.0
-        rl_y = rl_row["ValY"].values[0] if not rl_row.empty else 0.0
-        rr_x = rr_row["ValX"].values[0] if not rr_row.empty else 0.0
-        rr_y = rr_row["ValY"].values[0] if not rr_row.empty else 0.0
+        fl_dx = fl_row["ValX"].values[0] if not fl_row.empty else 0.0
+        fl_dy = fl_row["ValY"].values[0] if not fl_row.empty else 0.0
+        fr_dx = fr_row["ValX"].values[0] if not fr_row.empty else 0.0
+        fr_dy = fr_row["ValY"].values[0] if not fr_row.empty else 0.0
+        rl_dx = rl_row["ValX"].values[0] if not rl_row.empty else 0.0
+        rl_dy = rl_row["ValY"].values[0] if not rl_row.empty else 0.0
+        rr_dx = rr_row["ValX"].values[0] if not rr_row.empty else 0.0
+        rr_dy = rr_row["ValY"].values[0] if not rr_row.empty else 0.0
         
-        is_fail = group["OutOfSpec"].any()
+        # Nominales del Fixture
+        nom = NOMINALS.get(b_type, NOMINALS["TYPE S"])
         
+        # Nominales Teóricos
+        d1_nom = math.sqrt((nom["RR_X"] - nom["FL_X"])**2 + (nom["RR_Y"] - nom["FL_Y"])**2)
+        d2_nom = math.sqrt((nom["RL_X"] - nom["FR_X"])**2 + (nom["RL_Y"] - nom["FR_Y"])**2)
+        w_top_nom = math.sqrt((nom["FR_X"] - nom["FL_X"])**2 + (nom["FR_Y"] - nom["FL_Y"])**2)
+        w_bot_nom = math.sqrt((nom["RR_X"] - nom["RL_X"])**2 + (nom["RR_Y"] - nom["RL_Y"])**2)
+        l_left_nom = math.sqrt((nom["RL_X"] - nom["FL_X"])**2 + (nom["RL_Y"] - nom["FL_Y"])**2)
+        l_right_nom = math.sqrt((nom["RR_X"] - nom["FR_X"])**2 + (nom["RR_Y"] - nom["FR_Y"])**2)
+        angle_fl_nom = calculate_corner_angle(nom["FL_X"], nom["FL_Y"], nom["FR_X"], nom["FR_Y"], nom["RL_X"], nom["RL_Y"])
+        
+        # Reales (Nominal + Desviación)
+        fl_x, fl_y = nom["FL_X"] + fl_dx, nom["FL_Y"] + fl_dy
+        fr_x, fr_y = nom["FR_X"] + fr_dx, nom["FR_Y"] + fr_dy
+        rl_x, rl_y = nom["RL_X"] + rl_dx, nom["RL_Y"] + rl_dy
+        rr_x, rr_y = nom["RR_X"] + rr_dx, nom["RR_Y"] + rr_dy
+        
+        # Métricas Calculadas Reales
+        d1_act = math.sqrt((rr_x - fl_x)**2 + (rr_y - fl_y)**2)
+        d2_act = math.sqrt((rl_x - fr_x)**2 + (rl_y - fr_y)**2)
+        w_top_act = math.sqrt((fr_x - fl_x)**2 + (fr_y - fl_y)**2)
+        w_bot_act = math.sqrt((rr_x - rl_x)**2 + (rr_y - rl_y)**2)
+        l_left_act = math.sqrt((rl_x - fl_x)**2 + (rl_y - fl_y)**2)
+        l_right_act = math.sqrt((rr_x - fr_x)**2 + (rr_y - fr_y)**2)
+        angle_fl_act = calculate_corner_angle(fl_x, fl_y, fr_x, fr_y, rl_x, rl_y)
+        
+        # Deltas
+        delta_diags = abs((d1_act - d2_act) - (d1_nom - d2_nom))
+        diff_ancho = (w_top_act - w_top_nom) - (w_bot_act - w_bot_nom)
+        diff_largo = (l_left_act - l_left_nom) - (l_right_act - l_right_nom)
+        angle_fl_dev = angle_fl_act - angle_fl_nom
+        
+        # Diagnóstico Lógico
+        if delta_diags > MAX_DIAG_DELTA_TOL:
+            status_str = "DEFORMED"
+            if abs(angle_fl_dev) > ANGULAR_DEV_TOL and abs(diff_ancho) < DIM_DELTA_TOL:
+                detail_str = f"PARALLELOGRAM DISTORTION (Tilt: {angle_fl_dev:+.2f}°)"
+            elif abs(diff_ancho) >= DIM_DELTA_TOL:
+                detail_str = f"TRAPEZOIDAL WIDTH VARIATION (Delta: {diff_ancho:+.2f} mm)"
+            elif abs(diff_largo) >= DIM_DELTA_TOL:
+                detail_str = f"TRAPEZOIDAL LENGTH VARIATION (Delta: {diff_largo:+.2f} mm)"
+            else:
+                detail_str = f"COMBINED ASYMMETRY (Diag Delta: {delta_diags:.2f} mm)"
+        else:
+            status_str = "SQUARE OK"
+            detail_str = "Geometry within acceptable tolerance"
+            
         modules.append({
-            "DateTime": dt_val,
-            "Date": d_date,
-            "CW": cw,
-            "PartID": p_id,
-            "BatteryType": b_type,
-            "Run": "Run 1",
-            "RunNum": 1,
-            "FL_X": fl_x, "FL_Y": fl_y, "FL_Shift": np.hypot(fl_x, fl_y),
-            "FR_X": fr_x, "FR_Y": fr_y, "FR_Shift": np.hypot(fr_x, fr_y),
-            "RL_X": rl_x, "RL_Y": rl_y, "RL_Shift": np.hypot(rl_x, rl_y),
-            "RR_X": rr_x, "RR_Y": rr_y, "RR_Shift": np.hypot(rr_x, rr_y),
-            "Status": "FAIL" if is_fail else "PASS"
+            "DateTime": dt_val, "Date": d_date, "CW": cw, "PartID": p_id, "BatteryType": b_type,
+            "FL_DX": fl_dx, "FL_DY": fl_dy, "FR_DX": fr_dx, "FR_DY": fr_dy,
+            "RL_DX": rl_dx, "RL_DY": rl_dy, "RR_DX": rr_dx, "RR_DY": rr_dy,
+            "Diag1_Act": d1_act, "Diag2_Act": d2_act, "DeltaDiagonals": delta_diags,
+            "WidthDelta": diff_ancho, "LengthDelta": diff_largo, "AngleDevFL": angle_fl_dev,
+            "SquareStatus": status_str, "RootCause": detail_str
         })
             
-    df_modules = pd.DataFrame(modules)
-    return df, df_modules
+    return df, pd.DataFrame(modules)
 
 # -----------------------------------------------------------------------------
-# SIDEBAR / CARGA DE ARCHIVO
+# INTERFAZ STREAMLIT
 # -----------------------------------------------------------------------------
 st.sidebar.header("📁 Carga de Datos y Filtros")
 uploaded_file = st.sidebar.file_uploader("Cargar reporte Raw (CSV o Excel)", type=["csv", "xlsx", "xls"])
@@ -185,150 +230,106 @@ if uploaded_file is not None:
     df_raw, df_modules = process_data(uploaded_file)
     
     if df_modules.empty:
-        st.error("No se pudieron extraer datos válidos del archivo. Revisa que contenga columnas de Part ID y coordenadas.")
+        st.error("No se encontraron registros válidos.")
     else:
-        # Filtros laterales
         cw_list = sorted(df_modules["CW"].unique())
-        selected_cw = st.sidebar.multiselect("Filtrar por Calendar Week (CW)", options=cw_list, default=cw_list)
-        
+        selected_cw = st.sidebar.multiselect("Calendar Week (CW)", options=cw_list, default=cw_list)
         type_list = sorted(df_modules["BatteryType"].unique())
-        selected_type = st.sidebar.multiselect("Filtrar por Tipo de Batería", options=type_list, default=type_list)
+        selected_type = st.sidebar.multiselect("Tipo de Batería", options=type_list, default=type_list)
         
-        # Aplicar Filtros
         df_filtered = df_modules[
             (df_modules["CW"].isin(selected_cw)) & 
             (df_modules["BatteryType"].isin(selected_type))
         ]
         
-        # -------------------------------------------------------------------------
-        # TAB 1: RESUMEN Y KPIS DE CALIDAD
-        # -------------------------------------------------------------------------
-        tab1, tab2, tab3 = st.tabs(["📊 Resumen & FPY", "📐 Vector Shift Visualizer", "🔍 Geometría y Diagonales"])
+        tab1, tab2, tab3 = st.tabs(["📊 Resumen & FPY", "📐 Vector Shift Visualizer", "🔍 Squareness & Geometría"])
         
         with tab1:
-            st.subheader("KPIs Principales (First-Run Quality)")
-            
-            df_run1 = df_filtered[df_filtered["RunNum"] == 1]
-            
-            total_mod = len(df_run1)
-            pass_mod = len(df_run1[df_run1["Status"] == "PASS"])
-            fail_mod = len(df_run1[df_run1["Status"] == "FAIL"])
+            st.subheader("Métricas Generales de Calidad Geométrica")
+            total_mod = len(df_filtered)
+            pass_mod = len(df_filtered[df_filtered["SquareStatus"] == "SQUARE OK"])
+            fail_mod = len(df_filtered[df_filtered["SquareStatus"] == "DEFORMED"])
             fpy = (pass_mod / total_mod * 100) if total_mod > 0 else 0.0
             
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Módulos Únicos", total_mod)
-            col2.metric("Aprobados (PASS)", pass_mod)
-            col3.metric("Rechazados (FAIL)", fail_mod, delta_color="inverse")
-            col4.metric("First-Pass Yield (FPY)", f"{fpy:.1f}%")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Módulos Analizados", total_mod)
+            c2.metric("Square OK", pass_mod)
+            c3.metric("Deformed (FAIL)", fail_mod, delta_color="inverse")
+            c4.metric("First-Pass Yield (FPY)", f"{fpy:.1f}%")
             
             st.divider()
-            st.markdown("### Tendencia Semanal de FPY")
+            st.dataframe(
+                df_filtered.groupby("CW").agg(
+                    Total=('PartID', 'count'),
+                    Square_OK=('SquareStatus', lambda x: (x == 'SQUARE OK').sum()),
+                    Deformed=('SquareStatus', lambda x: (x == 'DEFORMED').sum())
+                ).reset_index(),
+                use_container_width=True
+            )
             
-            fpy_weekly = df_run1.groupby("CW").agg(
-                Total=('PartID', 'count'),
-                Pass=('Status', lambda x: (x == 'PASS').sum()),
-                Fail=('Status', lambda x: (x == 'FAIL').sum())
-            ).reset_index()
-            fpy_weekly["FPY_%"] = (fpy_weekly["Pass"] / fpy_weekly["Total"]) * 100
-            
-            st.dataframe(fpy_weekly.style.format({"FPY_%": "{:.1f}%"}), use_container_width=True)
-            
-        # -------------------------------------------------------------------------
-        # TAB 2: VECTOR SHIFT & INSPECCIÓN INDIVIDUAL
-        # -------------------------------------------------------------------------
         with tab2:
-            st.subheader("Visualizador de Deformación Geométrica Magnificada")
-            
+            st.subheader("Visualizador de Vector Shift (Offsets Magnificados)")
             col_sel, col_scale = st.columns([2, 1])
             selected_part = col_sel.selectbox("Seleccionar Módulo (Part ID):", df_filtered["PartID"].unique())
-            scale_factor = col_scale.slider("Escala de Magnificación (Offsets):", min_value=1, max_value=50, value=20)
+            scale = col_scale.slider("Factor de Magnificación:", min_value=1, max_value=50, value=20)
             
             row = df_filtered[df_filtered["PartID"] == selected_part].iloc[0]
+            nom = NOMINALS[row["BatteryType"]]
             
-            nom_w = 400.0
-            nom_l = 600.0
+            # Contorno Nominal Teórico
+            x_nom = [nom["RL_X"], nom["RR_X"], nom["FR_X"], nom["FL_X"], nom["RL_X"]]
+            y_nom = [nom["RL_Y"], nom["RR_Y"], nom["FR_Y"], nom["FL_Y"], nom["RL_Y"]]
             
-            px_nom = [0, nom_w, nom_w, 0, 0]
-            py_nom = [0, 0, nom_l, nom_l, 0]
-            
-            px_real = [
-                0 + row["RL_X"] * scale_factor,
-                nom_w + row["RR_X"] * scale_factor,
-                nom_w + row["FR_X"] * scale_factor,
-                0 + row["FL_X"] * scale_factor,
-                0 + row["RL_X"] * scale_factor
+            # Contorno Real Magnificado desde Nominales
+            x_real = [
+                nom["RL_X"] + row["RL_DX"] * scale,
+                nom["RR_X"] + row["RR_DX"] * scale,
+                nom["FR_X"] + row["FR_DX"] * scale,
+                nom["FL_X"] + row["FL_DX"] * scale,
+                nom["RL_X"] + row["RL_DX"] * scale
             ]
-            py_real = [
-                0 + row["RL_Y"] * scale_factor,
-                0 + row["RR_Y"] * scale_factor,
-                nom_l + row["FR_Y"] * scale_factor,
-                nom_l + row["FL_Y"] * scale_factor,
-                0 + row["RL_Y"] * scale_factor
+            y_real = [
+                nom["RL_Y"] + row["RL_DY"] * scale,
+                nom["RR_Y"] + row["RR_DY"] * scale,
+                nom["FR_Y"] + row["FR_DY"] * scale,
+                nom["FL_Y"] + row["FL_DY"] * scale,
+                nom["RL_Y"] + row["RL_DY"] * scale
             ]
             
             fig = go.Figure()
+            fig.add_trace(go.Scatter(x=x_nom, y=y_nom, mode='lines', name='Nominal Fixture', line=dict(color='gray', dash='dash')))
             
-            fig.add_trace(go.Scatter(
-                x=px_nom, y=py_nom,
-                mode='lines',
-                name='Nominal (Ideal)',
-                line=dict(color='gray', dash='dash')
-            ))
-            
-            line_color = 'red' if row["Status"] == "FAIL" else 'green'
-            fig.add_trace(go.Scatter(
-                x=px_real, y=py_real,
-                mode='lines+markers',
-                name=f'Deformado ({scale_factor}x Scale)',
-                line=dict(color=line_color, width=3)
-            ))
+            color = 'red' if row["SquareStatus"] == "DEFORMED" else 'green'
+            fig.add_trace(go.Scatter(x=x_real, y=y_real, mode='lines+markers', name=f'Medido ({scale}x Scale)', line=dict(color=color, width=3)))
             
             fig.update_layout(
-                title=f"Mapa de Deformación - Módulo {row['PartID']} ({row['BatteryType']}) - Status: {row['Status']}",
-                xaxis_title="Eje X (mm)",
-                yaxis_title="Eje Y (mm)",
-                yaxis=dict(scaleanchor="x", scaleratio=1),
-                width=700, height=800
+                title=f"Módulo: {row['PartID']} ({row['BatteryType']}) - Status: {row['SquareStatus']}",
+                xaxis_title="Eje X Fixture (mm)", yaxis_title="Eje Y Fixture (mm)",
+                yaxis=dict(scaleanchor="x", scaleratio=1), width=750, height=750
             )
-            
             st.plotly_chart(fig, use_container_width=True)
             
-        # -------------------------------------------------------------------------
-        # TAB 3: ANÁLISIS GEOMÉTRICO Y DIAGONALES
-        # -------------------------------------------------------------------------
         with tab3:
-            st.subheader("Cálculo de Diagonales, Cizallamiento y Efecto Trapecio")
+            st.subheader("Reporte de Esquadrado & Análisis de Causa Raíz")
             
-            nom_w = 400.0
-            nom_l = 600.0
-            
-            def calc_diags(r):
-                fl = np.array([0 + r["FL_X"], nom_l + r["FL_Y"]])
-                fr = np.array([nom_w + r["FR_X"], nom_l + r["FR_Y"]])
-                rl = np.array([0 + r["RL_X"], 0 + r["RL_Y"]])
-                rr = np.array([nom_w + r["RR_X"], 0 + r["RR_Y"]])
-                
-                d1 = np.linalg.norm(fl - rr)
-                d2 = np.linalg.norm(fr - rl)
-                
-                w_top = np.linalg.norm(fl - fr)
-                w_bot = np.linalg.norm(rl - rr)
-                
-                return pd.Series([d1, d2, d1 - d2, w_top - w_bot])
+            def highlight_deformed(val):
+                if val == "DEFORMED": return 'background-color: #ffc7ce; color: #9c0006; font-weight: bold;'
+                if val == "SQUARE OK": return 'background-color: #c6efce; color: #006100;'
+                return ''
 
-            df_geom = df_filtered.copy()
-            df_geom[["Diag1_mm", "Diag2_mm", "Delta_Diagonals_mm", "Trapezoid_Delta_mm"]] = df_geom.apply(calc_diags, axis=1)
-            
             st.dataframe(
-                df_geom[["PartID", "BatteryType", "CW", "Status", "Diag1_mm", "Diag2_mm", "Delta_Diagonals_mm", "Trapezoid_Delta_mm"]]
-                .style.format({
-                    "Diag1_mm": "{:.2f}",
-                    "Diag2_mm": "{:.2f}",
-                    "Delta_Diagonals_mm": "{:.2f}",
-                    "Trapezoid_Delta_mm": "{:.2f}"
+                df_filtered[[
+                    "Date", "CW", "PartID", "BatteryType", 
+                    "Diag1_Act", "Diag2_Act", "DeltaDiagonals", 
+                    "WidthDelta", "LengthDelta", "AngleDevFL", 
+                    "SquareStatus", "RootCause"
+                ]].style.map(highlight_deformed, subset=["SquareStatus"])
+                .format({
+                    "Diag1_Act": "{:.2f}", "Diag2_Act": "{:.2f}",
+                    "DeltaDiagonals": "{:.2f}", "WidthDelta": "{:.2f}",
+                    "LengthDelta": "{:.2f}", "AngleDevFL": "{:+.2f}°"
                 }),
                 use_container_width=True
             )
-
 else:
-    st.info("👆 Por favor sube un archivo de mediciones `.xlsx` o `.csv` en la barra lateral para iniciar el análisis.")
+    st.info("👆 Por favor sube un archivo `.xlsx` o `.csv` en la barra lateral para procesar el análisis.")
