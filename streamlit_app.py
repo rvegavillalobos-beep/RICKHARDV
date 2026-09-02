@@ -22,7 +22,7 @@ st.title("🔋 Battery Dimensional Analytics & Quality Engine")
 FAIL_THRESHOLD = 3.0
 
 # -----------------------------------------------------------------------------
-# LÓGICA DE PARSEO Y MAPPING EXACTO A LA MACRO VBA
+# LÓGICA DE PARSEO Y MAPPING EXACTO A LA MACRO VBA (CÓDIGO 2)
 # -----------------------------------------------------------------------------
 
 def parse_english_datetime_strict(date_val):
@@ -141,7 +141,7 @@ def extract_corner_index(feature_name, part_id, battery_type):
 
 
 # -----------------------------------------------------------------------------
-# PROCESAMIENTO Y DEDUCCIÓN DE CORRIDAS (RUNS)
+# PROCESAMIENTO Y DEDUCCIÓN DE CORRIDAS (RUNS) (CÓDIGO 2)
 # -----------------------------------------------------------------------------
 
 @st.cache_data
@@ -167,7 +167,7 @@ def process_data(file):
     else:
         df = pd.read_csv(file, skiprows=header_idx)
 
-    # Reestructuración y mapeo de columnas (Col 1: Date, Col 2: PartID, Col 3: Feature, Col 4: ValX, Col 7: ValY)
+    # Reestructuración y mapeo de columnas
     cols = list(df.columns)
     date_col = cols[0]
     part_col = cols[1]
@@ -223,10 +223,10 @@ def process_data(file):
 
     df_records = pd.DataFrame(records)
 
-    # ORDENAMIENTO CRONOLÓGICO ESTRICTO (Equivalente al QuickSort en VBA)
+    # Ordenamiento cronológico estricto
     df_records = df_records.sort_values(by="FullDateTime").reset_index(drop=True)
 
-    # LÓGICA DE DETECCIÓN DE RUNS Y DICCIONARIOS DE CONSOLIDACIÓN
+    # Lógica de detección de Runs y consolidación
     run_tracker = {}
     mod_corner_history = {}
     dict_modules = {}
@@ -274,7 +274,7 @@ def process_data(file):
         else:
             mod_data = dict_modules[full_module_key]
 
-            # PROMOCIÓN DINÁMICA DE TIPO (Type S -> Type M)
+            # Promoción dinámica de tipo
             if mod_data["BatteryType"] == "Type S" and rec['BatteryType'] == "Type M":
                 mod_data["BatteryType"] = "Type M"
 
@@ -289,12 +289,10 @@ def process_data(file):
 
             dict_modules[full_module_key] = mod_data
 
-    # CONSTRUCCIÓN DEL DATAFRAME FINAL DE MÓDULOS
+    # Construcción del DataFrame final de módulos
     modules_list = []
     for key, item in dict_modules.items():
         out_spec_pts = item["OutOfSpecCount"]
-        
-        # REGLA 1 SOLUCIONADA: FAIL únicamente si out_spec_pts > 0 (Desviaciones >= +/-3.0mm)
         overall_pass = "FAIL" if out_spec_pts > 0 else "PASS"
 
         modules_list.append({
@@ -322,7 +320,7 @@ def process_data(file):
 
 
 # -----------------------------------------------------------------------------
-# INTERFAZ STREAMLIT
+# INTERFAZ STREAMLIT CON INTEGRACIÓN DE LA TABLA (CÓDIGO 1 + CÓDIGO 2)
 # -----------------------------------------------------------------------------
 st.sidebar.header("📁 Carga de Datos y Filtros")
 uploaded_file = st.sidebar.file_uploader("Cargar reporte Raw (CSV o Excel)", type=["csv", "xlsx", "xls"])
@@ -365,6 +363,9 @@ if uploaded_file is not None:
 
             st.divider()
 
+            # -----------------------------------------------------------------
+            # TABLA: Detailed Measurement Log (All Runs & Retests) - LÓGICA CÓDIGO 1
+            # -----------------------------------------------------------------
             st.markdown("### 📑 Detailed Measurement Log (All Runs & Retests)")
 
             display_runs = df_filtered[[
@@ -379,15 +380,17 @@ if uploaded_file is not None:
                 "OverallPass": "Module Status"
             })
 
+            # Lógica de renderizado y resaltado de la tabla (Del Código 1)
             def style_run_table(df):
                 styles = pd.DataFrame('', index=df.index, columns=df.columns)
                 dev_cols = ["FL_X", "FL_Y", "FR_X", "FR_Y", "RL_X", "RL_Y", "RR_X", "RR_Y"]
 
-                # Destacar celdas con desviaciones >= +/- 3.0 mm
+                # Destacar celdas individuales con desviaciones >= +/- 3.0 mm
                 for col in dev_cols:
                     mask = df[col].apply(lambda v: abs(v) >= FAIL_THRESHOLD)
                     styles.loc[mask, col] = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
 
+                # Destacar estatus global del módulo
                 pass_mask = df["Module Status"] == "PASS"
                 fail_mask = df["Module Status"] == "FAIL"
                 styles.loc[pass_mask, "Module Status"] = 'background-color: #d4edda; color: #155724; font-weight: bold;'
