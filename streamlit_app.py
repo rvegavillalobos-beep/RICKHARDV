@@ -11,37 +11,60 @@ st.set_page_config(
 )
 
 
-# --- FUNCIONES DE SOPORTE ---
+# --- FUNCIONES DE SOPORTE (Portadas fielmente desde VBA) ---
 def determine_battery_type(part_id: str, feature_name: str) -> str:
   p_id = str(part_id).upper().strip()
   f_name = str(feature_name).upper().strip()
 
-  if "_DJ" in p_id or "_DJ" in f_name or "_DA" in f_name:
-    return "Type M" if "_DJ" in f_name or "_DJ" in p_id else "Type S"
+  if "_DJ" in p_id or "_DJ" in f_name:
+    return "Type M"
+  if "_M" in p_id or "-M" in p_id or "TYPE M" in p_id or "TYPEM" in p_id:
+    return "Type M"
+  if p_id.endswith("M") or p_id.endswith("_M"):
+    return "Type M"
+
+  if "_DA" in p_id or "_DA" in f_name:
+    return "Type S"
+  if "_S" in p_id or "-S" in p_id or "TYPE S" in p_id or "TYPES" in p_id:
+    return "Type S"
+
   return "Type S"
 
 
-def extract_corner_index(feature_name: str) -> int:
+def extract_corner_index(feature_name: str, part_id: str) -> int:
   f = str(feature_name).lower().strip()
+  if not f:
+    return 0
+
+  is_type_m = determine_battery_type(part_id, feature_name) == "Type M"
+
+  # Coincidencias estrictas por ID de feature específicos
+  if "72_l0324_aa" in f:
+    return 1
+  if "72_r0301_aa" in f:
+    return 2
+
+  if is_type_m:
+    if "72_l0324_dj" in f:
+      return 3
+    if "72_r0301_dj" in f:
+      return 4
+  else:
+    if "72_l0324_da" in f:
+      return 3
+    if "72_r0302_da" in f:
+      return 4
+
+  # Patrones generales de respaldo idénticos a VBA
+  if "fl" in f or "c1" in f:
+    return 1
+  elif "fr" in f or "c2" in f:
+    return 2
+  elif "rl" in f or "c3" in f:
+    return 3
+  elif "rr" in f or "c4" in f or "r302" in f or "r301" in f or "r0301" in f:
+    return 4
   
-  # FL (Front-Left): L0324 o L324 con 'aa'
-  if ("l324" in f or "l0324" in f) and "aa" in f:
-    return 1  
-  # FR (Front-Right): R0301 o R301 con 'aa'
-  if ("r301" in f or "r0301" in f) and "aa" in f:
-    return 2  
-  # RL (Rear-Left): L0324, L324 o L316 sin 'aa' (ej. da, dj, cc, bd)
-  if ("l324" in f or "l0324" in f or "l316" in f) and "aa" not in f:
-    return 3  
-  # RR (Rear-Right): Lados derechos sin 'aa' (ej. da, dj, cc, bd)
-  if any(sub in f for sub in ["r302", "r301", "r0301", "r309", "r308"]) and "aa" not in f:
-    return 4  
-  
-  # Fallbacks generales por seguridad
-  if "fl" in f: return 1
-  if "fr" in f: return 2
-  if "rl" in f: return 3
-  if "rr" in f: return 4
   return 0
 
 
@@ -111,7 +134,10 @@ if uploaded_file is not None:
     df_raw["ParsedDate"] = pd.to_datetime(df_raw[time_col], errors="coerce")
     df_raw["CalendarWeek"] = "CW" + df_raw["ParsedDate"].dt.isocalendar().week.astype(str).str.zfill(2)
     df_raw["BatteryType"] = df_raw.apply(lambda row: determine_battery_type(row[part_col], row[feat_col]), axis=1)
-    df_raw["CornerIndex"] = df_raw.apply(lambda row: extract_corner_index(row[feat_col]), axis=1)
+    
+    # Aquí aplicamos la función corregida idéntica al VBA
+    df_raw["CornerIndex"] = df_raw.apply(lambda row: extract_corner_index(row[feat_col], row[part_col]), axis=1)
+    
     df_raw["X_Val"] = pd.to_numeric(df_raw[x_dev_col], errors="coerce").fillna(0.0)
     df_raw["Y_Val"] = pd.to_numeric(df_raw[y_dev_col], errors="coerce").fillna(0.0)
     
@@ -121,13 +147,43 @@ if uploaded_file is not None:
     )
 
     modules_data = []
-    grouped = df_raw.groupby([time_col, part_col])
+    
+    # Lógica de agrupación de runs idéntica a la macro VBA
+    run_tracker = {}
+    mod_corner_history = {}
 
-    for (t_val, p_val), group in grouped:
+    # Ordenamos por fecha para simular el comportamiento secuencial del arreglo de VBA
+    df_raw = df_raw.sort_values(by="ParsedDate").reset_index(drop=True)
+
+    for _, r_item in df_raw.iterrows():
+      f_date_str = str(r_item["ParsedDate"].date())
+      p_val = r_item[part_col]
+      base_key = f"{f_date_str}|{p_val}"
+      f_name = r_item[feat_col]
+
+      if base_key not in run_tracker:
+        run_tracker[base_key] = 1
+        mod_corner_history[base_key] = f_name
+      else:
+        if f_name in mod_corner_history[base_key]:
+          run_tracker[base_key] += 1
+          mod_corner_history[base_key] = f_name
+        else:
+          mod_corner_history[base_key] += f";{f_name}"
+
+      current_run = run_tracker[base_key]
+      r_item["CurrentRun"] = current_run
+      r_item["BaseKey"] = base_key
+
+    # Agrupamos por baseKey y Run para consolidar las 4 esquinas por batería/corrida
+    grouped_runs = df_raw.groupby(["BaseKey", "CurrentRun"])
+
+    for (b_key, c_run), group in grouped_runs:
       first_row = group.iloc[0]
       full_dt = first_row["ParsedDate"]
       cal_week = first_row["CalendarWeek"]
       bat_type = first_row["BatteryType"]
+      p_val = first_row[part_col]
 
       corners = {1: (None, None), 2: (None, None), 3: (None, None), 4: (None, None)}
       out_spec_flags = []
@@ -146,6 +202,7 @@ if uploaded_file is not None:
           "CalendarWeek": cal_week,
           "PartID": p_val,
           "BatteryType": bat_type,
+          "RunNum": c_run,
           "FL_X": corners[1][0], "FL_Y": corners[1][1],
           "FR_X": corners[2][0], "FR_Y": corners[2][1],
           "RL_X": corners[3][0], "RL_Y": corners[3][1],
@@ -155,9 +212,6 @@ if uploaded_file is not None:
       })
 
     df_summary = pd.DataFrame(modules_data)
-
-    df_summary = df_summary.sort_values(by=["PartID", "Date"]).reset_index(drop=True)
-    df_summary["RunNum"] = df_summary.groupby("PartID").cumcount() + 1
     df_summary = df_summary.sort_values(by="Date", ascending=True).reset_index(drop=True)
 
     cols = ["Date", "CalendarWeek", "PartID", "BatteryType", "RunNum", 
@@ -181,7 +235,7 @@ if uploaded_file is not None:
       fpy = (passed_modules / total_modules * 100) if total_modules > 0 else 0
 
       col1.metric("Total de Baterías Inspeccionadas", total_modules)
-      col2.metric("Aprobadas dentro de Spec (±3mm)", passed_modules)
+      col2.metric(f"Aprobadas dentro de Spec (±{spec_limit}mm)", passed_modules)
       col3.metric("First-Pass Yield (FPY)", f"{fpy:.1f}%")
 
     with tab2:
