@@ -238,7 +238,6 @@ if uploaded_file is not None:
             (df_modules["BatteryType"].isin(selected_type))
         ]
         
-        # DEFINICIÓN DE TAB5 (Pestañas principal y secundarias)
         tab1, tab2, tab3 = st.tabs([
             "📊 Executive Quality Dashboard", 
             "📐 Vector Shift Visualizer", 
@@ -256,36 +255,38 @@ if uploaded_file is not None:
             fail_mod = len(df_filtered[df_filtered["OverallPass"] == "FAILED (NOK)"])
             fpy_global = (pass_mod / total_mod * 100) if total_mod > 0 else 0.0
             
-            # Tabla superior de resumen de calidad
-            col_summary, col_space = st.columns([1, 2])
+            # 1. TABLA SUPERIOR DE RESUMEN EJECUTIVO
+            st.markdown("##### 📋 FIRST-RUN QUALITY SUMMARY")
+            summary_data = {
+                "Metric": [
+                    "Unique Modules (Run)", 
+                    "Passed First-Run (OK)", 
+                    "Failed First-Run (NOK)", 
+                    "First-Pass Yield (FPY)"
+                ],
+                "Value": [
+                    f"{total_mod}", 
+                    f"{pass_mod}", 
+                    f"{fail_mod}", 
+                    f"{fpy_global:.1f}%"
+                ]
+            }
+            df_kpi_table = pd.DataFrame(summary_data)
             
-            with col_summary:
-                st.markdown("##### 📋 FIRST-RUN QUALITY SUMMARY")
-                summary_data = {
-                    "Metric": [
-                        "Unique Modules (Run)", 
-                        "Passed First-Run (OK)", 
-                        "Failed First-Run (NOK)", 
-                        "First-Pass Yield (FPY)"
-                    ],
-                    "Value": [
-                        f"{total_mod}", 
-                        f"{pass_mod}", 
-                        f"{fail_mod}", 
-                        f"{fpy_global:.1f}%"
-                    ]
+            st.dataframe(
+                df_kpi_table,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Metric": st.column_config.TextColumn("Quality Metric", width="large"),
+                    "Value": st.column_config.TextColumn("Total Value", width="medium")
                 }
-                df_kpi_table = pd.DataFrame(summary_data)
-                st.dataframe(
-                    df_kpi_table,
-                    use_container_width=True,
-                    hide_index=True
-                )
+            )
 
             st.divider()
 
-            # Gráfico de barras apiladas + Tabla de desglose semanal
-            col_chart, col_table = st.columns([3, 2])
+            # 2. GRÁFICO DE BARRAS APILADAS Y TABLA DESGLOSE SEMANAL
+            col_chart, col_table = st.columns([1, 1], gap="large")
             
             cw_summary = df_filtered.groupby("CW").agg(
                 Total=('PartID', 'count'),
@@ -333,7 +334,7 @@ if uploaded_file is not None:
                     barmode='stack',
                     yaxis_title="Percentage (%)",
                     yaxis=dict(range=[0, 105]),
-                    height=420,
+                    height=450,
                     margin=dict(l=20, r=20, t=30, b=20),
                     legend=dict(
                         orientation="h", 
@@ -360,15 +361,22 @@ if uploaded_file is not None:
                 })[["Calendar Week", "Unique Modules", "Passed (OK)", "Failed (NOK)", "Pass Rate (%)"]]
                 
                 st.dataframe(
-                    display_cw.style.format({
-                        "Unique Modules": "{:d}",
-                        "Passed (OK)": "{:d}",
-                        "Failed (NOK)": "{:d}",
-                        "Pass Rate (%)": "{:.1f}%"
-                    }).background_gradient(subset=["Pass Rate (%)"], cmap="YlGn", vmin=0, vmax=100),
+                    display_cw,
                     use_container_width=True,
                     hide_index=True,
-                    height=420
+                    height=450,
+                    column_config={
+                        "Calendar Week": st.column_config.TextColumn("Calendar Week", width="small"),
+                        "Unique Modules": st.column_config.NumberColumn("Unique Modules", format="%d"),
+                        "Passed (OK)": st.column_config.NumberColumn("Passed (OK)", format="%d"),
+                        "Failed (NOK)": st.column_config.NumberColumn("Failed (NOK)", format="%d"),
+                        "Pass Rate (%)": st.column_config.ProgressColumn(
+                            "Pass Rate (%)",
+                            format="%.1f%%",
+                            min_value=0,
+                            max_value=100
+                        )
+                    }
                 )
 
         # ---------------------------------------------------------------------
