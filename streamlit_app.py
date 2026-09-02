@@ -321,7 +321,6 @@ if uploaded_file is not None:
                     if pd.isna(fl_x) or pd.isna(fr_x) or pd.isna(rl_x) or pd.isna(rr_x):
                         continue
                         
-                    # Aplicar offsets y factor de exageración en orden: RL -> FL -> FR -> RR -> RL
                     plot_rl_x = -25.0 + (rl_x * exaggeration)
                     plot_rl_y = -15.0 + (rl_y * exaggeration)
                     
@@ -366,7 +365,7 @@ if uploaded_file is not None:
                     height=650,
                     title=f"Geometría Real - Últimos {num_to_graph} Módulos (Exageración {exaggeration}x) vs Nominal",
                     xaxis=dict(range=[-35, 35]),
-                    yaxis=dict(range=[-25, 25], scaleanchor="xaxis", scaleratio=1),
+                    yaxis=dict(range=[-25, 25], scaleanchor="x", scaleratio=1),
                     legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02)
                 )
                 
