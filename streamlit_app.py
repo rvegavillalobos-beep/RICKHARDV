@@ -290,7 +290,7 @@ if uploaded_file is not None:
                 )
                 st.plotly_chart(fig_stacked, use_container_width=True)
                 
-with col_chart2:
+            with col_chart2:
                 st.markdown("### ⚠️ Root Cause Breakdown (Defect Pareto)")
                 rc_counts = df_filtered[df_filtered["SquareStatus"] == "DEFORMED"]["RootCause"].value_counts().reset_index()
                 rc_counts.columns = ["RootCause", "Count"]
