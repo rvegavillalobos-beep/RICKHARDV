@@ -220,14 +220,12 @@ if uploaded_file is not None:
         with tab1:
             st.subheader("📋 Resumen de Calidad de Primer Intento (First-Run)")
 
-            # Filtrar estrictamente para RunNum == 1
             df_run1 = df_summary[df_summary["RunNum"] == 1]
             total_run1 = len(df_run1)
             passed_run1 = len(df_run1[df_run1["Status"] == "PASS"])
             failed_run1 = len(df_run1[df_run1["Status"] == "FAIL"])
             fpy_val = (passed_run1 / total_run1 * 100) if total_run1 > 0 else 0
 
-            # Tabla 1: First-Run Quality Summary
             summary_table_data = {
                 "Metric": [
                     "Unique Modules (Run 1)",
@@ -276,53 +274,105 @@ if uploaded_file is not None:
             st.dataframe(style_report(df_summary, spec_limit), use_container_width=True)
 
         with tab2:
-            st.subheader("Visualización Geométrica por Batería")
+            st.subheader("📈 Visualización Geométrica Interactiva (Simulación & Exageración)")
+            
             if not df_summary.empty:
-                valid_plot_df = df_summary.dropna(subset=["FL_X", "FR_X", "RL_X", "RR_X"])
-                if not valid_plot_df.empty:
-                    selected_idx = st.selectbox(
-                        "Selecciona una Batería (Fecha, PartID y Run):", 
-                        valid_plot_df.index, 
-                        format_func=lambda i: f"{df_summary.loc[i, 'Date']} | {df_summary.loc[i, 'PartID']} (Run {df_summary.loc[i, 'RunNum']}) [{df_summary.loc[i, 'Status']}]"
+                col_ctrl1, col_ctrl2 = st.columns(2)
+                with col_ctrl1:
+                    total_mods = len(df_summary)
+                    num_to_graph = st.slider(
+                        "Número de baterías recientes a graficar:",
+                        min_value=1,
+                        max_value=max(1, total_mods),
+                        value=min(10, total_mods),
+                        step=1,
+                        help="Toma las baterías más recientes (del más nuevo al más viejo)."
                     )
-                    row_sel = df_summary.loc[selected_idx]
-                    
-                    fig = go.Figure()
-                    nom = get_nominal_coordinates(row_sel["BatteryType"])
-                    
-                    nom_box = [
-                        (nom["RL_X"], nom["RL_Y"]), 
-                        (nom["FL_X"], nom["FL_Y"]), 
-                        (nom["FR_X"], nom["FR_Y"]), 
-                        (nom["RR_X"], nom["RR_Y"]), 
-                        (nom["RL_X"], nom["RL_Y"])
-                    ]
-                    fig.add_trace(go.Scatter(
-                        x=[p[0] for p in nom_box], y=[p[1] for p in nom_box],
-                        mode="lines", name="Nominal CAD", line=dict(color="blue", width=2, dash="dash")
-                    ))
-
-                    act_box = [
-                        (nom["RL_X"] + row_sel["RL_X"], nom["RL_Y"] + row_sel["RL_Y"]),
-                        (nom["FL_X"] + row_sel["FL_X"], nom["FL_Y"] + row_sel["FL_Y"]),
-                        (nom["FR_X"] + row_sel["FR_X"], nom["FR_Y"] + row_sel["FR_Y"]),
-                        (nom["RR_X"] + row_sel["RR_X"], nom["RR_Y"] + row_sel["RR_Y"]),
-                        (nom["RL_X"] + row_sel["RL_X"], nom["RL_Y"] + row_sel["RL_Y"])
-                    ]
-                    color_line = "red" if row_sel["Status"] == "FAIL" else "green"
-                    fig.add_trace(go.Scatter(
-                        x=[p[0] for p in act_box], y=[p[1] for p in act_box],
-                        mode="lines+markers", name=f"Medido ({row_sel['Status']})",
-                        line=dict(color=color_line, width=3), marker=dict(size=8)
-                    ))
-
-                    fig.update_layout(
-                        xaxis_title="Eje X (mm)", yaxis_title="Eje Y (mm)",
-                        height=500, title=f"Batería: {row_sel['PartID']} (Run {row_sel['RunNum']})"
+                with col_ctrl2:
+                    exaggeration = st.slider(
+                        "Factor de Exageración de Desviaciones:",
+                        min_value=1.0,
+                        max_value=50.0,
+                        value=5.0,
+                        step=1.0,
+                        help="Multiplica las desviaciones para visualizar deformaciones sutiles."
                     )
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.warning("No hay baterías con las 4 esquinas medidas simultáneamente para graficar.")
+                
+                df_to_plot = df_summary.tail(num_to_graph)
+                
+                fig = go.Figure()
+                
+                # Marco nominal 50x30 mm local (X: -25 a 25, Y: -15 a 15)
+                nom_x = [-25, -25, 25, 25, -25]
+                nom_y = [-15, 15, 15, -15, -15]
+                fig.add_trace(go.Scatter(
+                    x=nom_x, y=nom_y,
+                    mode="lines",
+                    name="Perfil Nominal (50x30 mm)",
+                    line=dict(color="green", width=3, dash="dash")
+                ))
+                
+                for _, row in df_to_plot.iterrows():
+                    fl_x, fl_y = row["FL_X"], row["FL_Y"]
+                    fr_x, fr_y = row["FR_X"], row["FR_Y"]
+                    rl_x, rl_y = row["RL_X"], row["RL_Y"]
+                    rr_x, rr_y = row["RR_X"], row["RR_Y"]
+                    
+                    if pd.isna(fl_x) or pd.isna(fr_x) or pd.isna(rl_x) or pd.isna(rr_x):
+                        continue
+                        
+                    # Aplicar offsets y factor de exageración en orden: RL -> FL -> FR -> RR -> RL
+                    plot_rl_x = -25.0 + (rl_x * exaggeration)
+                    plot_rl_y = -15.0 + (rl_y * exaggeration)
+                    
+                    plot_fl_x = -25.0 + (fl_x * exaggeration)
+                    plot_fl_y = 15.0 + (fl_y * exaggeration)
+                    
+                    plot_fr_x = 25.0 + (fr_x * exaggeration)
+                    plot_fr_y = 15.0 + (fr_y * exaggeration)
+                    
+                    plot_rr_x = 25.0 + (rr_x * exaggeration)
+                    plot_rr_y = -15.0 + (rr_y * exaggeration)
+                    
+                    mod_x = [plot_rl_x, plot_fl_x, plot_fr_x, plot_rr_x, plot_rl_x]
+                    mod_y = [plot_rl_y, plot_fl_y, plot_fr_y, plot_rr_y, plot_rl_y]
+                    
+                    status = row["Status"]
+                    color = "red" if status == "FAIL" else "gray"
+                    opacity = 0.8 if status == "FAIL" else 0.4
+                    width = 2 if status == "FAIL" else 1
+                    
+                    label = f"{row['PartID']} (Run {row['RunNum']}) [{status}]"
+                    
+                    fig.add_trace(go.Scatter(
+                        x=mod_x, y=mod_y,
+                        mode="lines+markers",
+                        name=label,
+                        line=dict(color=color, width=width),
+                        marker=dict(size=4),
+                        opacity=opacity,
+                        hovertemplate=(
+                            f"<b>PartID:</b> {row['PartID']}<br>"
+                            f"<b>Run:</b> {row['RunNum']}<br>"
+                            f"<b>Status:</b> {status}<br>"
+                            f"<b>Exageración:</b> {exaggeration}x<br>"
+                            f"<b>Fecha:</b> {row['Date']}<extra></extra>"
+                        )
+                    ))
+                
+                fig.update_layout(
+                    xaxis_title="Eje X Local (mm)",
+                    yaxis_title="Eje Y Local (mm)",
+                    height=650,
+                    title=f"Geometría Real - Últimos {num_to_graph} Módulos (Exageración {exaggeration}x) vs Nominal",
+                    xaxis=dict(range=[-35, 35]),
+                    yaxis=dict(range=[-25, 25], scaleanchor="xaxis", scaleratio=1),
+                    legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02)
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("No hay datos disponibles para graficar.")
 
         with tab3:
             st.subheader("Análisis de Escuadría y Diagonales")
