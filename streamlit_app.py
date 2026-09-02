@@ -378,7 +378,7 @@ def main():
 
     # Exportación a Excel
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+ with pd.ExcelWriter(output) as writer:
       filtered_df.to_excel(writer, sheet_name='Resultados_Metrologia', index=False)
     processed_data = output.getvalue()
 
