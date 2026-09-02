@@ -24,17 +24,15 @@ def determine_battery_type(part_id: str, feature_name: str) -> str:
 def extract_corner_index(feature_name: str) -> int:
   f = str(feature_name).lower().strip()
   
-  # Mapeo exacto basado en nomenclaturas CAD (Type S y Type M)
   if "l324_aa" in f or "l0324_aa" in f:
-    return 1  # FL (Front-Left)
+    return 1  # FL
   if "r301_aa" in f or "r0301_aa" in f:
-    return 2  # FR (Front-Right)
+    return 2  # FR
   if "l324_da" in f or "l0324_dj" in f or "l324_cc" in f or "l316" in f:
-    return 3  # RL (Rear-Left)
+    return 3  # RL
   if "r302_da" in f or "r301_dj" in f or "r309" in f or "r308" in f or "r309_cc" in f or "r308_bd" in f:
-    return 4  # RR (Rear-Right)
+    return 4  # RR
   
-  # Fallbacks generales por seguridad
   if "fl" in f: return 1
   if "fr" in f: return 2
   if "rl" in f: return 3
@@ -153,12 +151,10 @@ if uploaded_file is not None:
 
     df_summary = pd.DataFrame(modules_data)
 
-    # Asignar RunNum cronológico por cada PartID y ordenar globalmente por fecha
     df_summary = df_summary.sort_values(by=["PartID", "Date"]).reset_index(drop=True)
     df_summary["RunNum"] = df_summary.groupby("PartID").cumcount() + 1
     df_summary = df_summary.sort_values(by="Date", ascending=True).reset_index(drop=True)
 
-    # Reordenar columnas para que RunNum aparezca al principio
     cols = ["Date", "CalendarWeek", "PartID", "BatteryType", "RunNum", 
             "FL_X", "FL_Y", "FR_X", "FR_Y", "RL_X", "RL_Y", "RR_X", "RR_Y", 
             "OutOfSpecCount", "Status"]
@@ -186,29 +182,31 @@ if uploaded_file is not None:
     with tab2:
       st.subheader("Visualización Geométrica por Batería")
       if not df_summary.empty:
-        selected_idx = st.selectbox(
-            "Selecciona una Batería (Fecha, PartID y Run):", 
-            df_summary.index, 
-            format_func=lambda i: f"{df_summary.loc[i, 'Date']} | {df_summary.loc[i, 'PartID']} (Run {df_summary.loc[i, 'RunNum']}) [{df_summary.loc[i, 'Status']}]"
-        )
-        row_sel = df_summary.loc[selected_idx]
-        
-        fig = go.Figure()
-        nom = get_nominal_coordinates(row_sel["BatteryType"])
-        
-        nom_box = [
-            (nom["RL_X"], nom["RL_Y"]), 
-            (nom["FL_X"], nom["FL_Y"]), 
-            (nom["FR_X"], nom["FR_Y"]), 
-            (nom["RR_X"], nom["RR_Y"]), 
-            (nom["RL_X"], nom["RL_Y"])
-        ]
-        fig.add_trace(go.Scatter(
-            x=[p[0] for p in nom_box], y=[p[1] for p in nom_box],
-            mode="lines", name="Nominal CAD", line=dict(color="blue", width=2, dash="dash")
-        ))
+        # Filtrar solo las que tienen las 4 esquinas completas para graficar sin error
+        valid_plot_df = df_summary.dropna(subset=["FL_X", "FR_X", "RL_X", "RR_X"])
+        if not valid_plot_df.empty:
+          selected_idx = st.selectbox(
+              "Selecciona una Batería (Fecha, PartID y Run):", 
+              valid_plot_df.index, 
+              format_func=lambda i: f"{df_summary.loc[i, 'Date']} | {df_summary.loc[i, 'PartID']} (Run {df_summary.loc[i, 'RunNum']}) [{df_summary.loc[i, 'Status']}]"
+          )
+          row_sel = df_summary.loc[selected_idx]
+          
+          fig = go.Figure()
+          nom = get_nominal_coordinates(row_sel["BatteryType"])
+          
+          nom_box = [
+              (nom["RL_X"], nom["RL_Y"]), 
+              (nom["FL_X"], nom["FL_Y"]), 
+              (nom["FR_X"], nom["FR_Y"]), 
+              (nom["RR_X"], nom["RR_Y"]), 
+              (nom["RL_X"], nom["RL_Y"])
+          ]
+          fig.add_trace(go.Scatter(
+              x=[p[0] for p in nom_box], y=[p[1] for p in nom_box],
+              mode="lines", name="Nominal CAD", line=dict(color="blue", width=2, dash="dash")
+          ))
 
-        if not pd.isna(row_sel["FL_X"]):
           act_box = [
               (nom["RL_X"] + row_sel["RL_X"], nom["RL_Y"] + row_sel["RL_Y"]),
               (nom["FL_X"] + row_sel["FL_X"], nom["FL_Y"] + row_sel["FL_Y"]),
@@ -223,18 +221,23 @@ if uploaded_file is not None:
               line=dict(color=color_line, width=3), marker=dict(size=8)
           ))
 
-        fig.update_layout(
-            xaxis_title="Eje X (mm)", yaxis_title="Eje Y (mm)",
-            height=500, title=f"Batería: {row_sel['PartID']} (Run {row_sel['RunNum']})"
-        )
-        st.plotly_chart(fig, use_container_width=True)
+          fig.update_layout(
+              xaxis_title="Eje X (mm)", yaxis_title="Eje Y (mm)",
+              height=500, title=f"Batería: {row_sel['PartID']} (Run {row_sel['RunNum']})"
+          )
+          st.plotly_chart(fig, use_container_width=True)
+        else:
+          st.warning("No hay baterías con las 4 esquinas medidas simultáneamente para graficar.")
 
     with tab3:
       st.subheader("Análisis de Escuadría y Diagonales")
       squareness_records = []
 
       for _, row in df_summary.iterrows():
-        if pd.isna(row["FL_X"]): continue
+        # Validar que ninguna esquina sea nula antes de operar
+        if pd.isna(row["FL_X"]) or pd.isna(row["FR_X"]) or pd.isna(row["RL_X"]) or pd.isna(row["RR_X"]):
+          continue
+          
         nom = get_nominal_coordinates(row["BatteryType"])
         
         d1_nom = np.sqrt((nom["RR_X"] - nom["FL_X"])**2 + (nom["RR_Y"] - nom["FL_Y"])**2)
@@ -265,7 +268,10 @@ if uploaded_file is not None:
         })
 
       df_squareness = pd.DataFrame(squareness_records)
-      st.dataframe(df_squareness, use_container_width=True)
+      if not df_squareness.empty:
+        st.dataframe(df_squareness, use_container_width=True)
+      else:
+        st.info("No hay suficientes datos completos de 4 esquinas para calcular escuadría.")
 
     st.markdown("---")
     output = io.BytesIO()
