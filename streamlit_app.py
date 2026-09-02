@@ -16,7 +16,6 @@ st.set_page_config(
 OUT_OF_SPEC_LIMIT = 1.0  # Límite en mm para desviaciones individuales (X, Y)
 MAX_DIAG_DELTA_TOL = 1.5  # Tolerancia para diferencia de diagonales
 
-# Valores nominales de referencia por tipo de batería (Ajustables según tus fixtures)
 NOMINALS = {
     'TYPE S': {
         'FL_X': 0.0,
@@ -87,7 +86,7 @@ def calculate_corner_angle(x1, y1, x2, y2, x3, y3):
   return np.degrees(angle_rad)
 
 
-# --- FUNCIÓN PRINCIPAL DE PROCESAMIENTO (LÓGICA VBA) ---
+# --- FUNCIÓN PRINCIPAL DE PROCESAMIENTO CON MAPEO FLEXIBLE ---
 @st.cache_data
 def process_data(file):
   if file.name.endswith(('.xlsx', '.xls')):
@@ -101,9 +100,7 @@ def process_data(file):
         str(val).lower() for val in df_raw.iloc[idx].values if pd.notna(val)
     ]
     row_combined = ' '.join(row_values)
-    if 'part id' in row_combined and (
-        'feature' in row_combined or 'time' in row_combined
-    ):
+    if 'part' in row_combined or 'id' in row_combined:
       header_idx = idx
       break
 
@@ -115,23 +112,43 @@ def process_data(file):
 
   df.columns = [str(col).strip() for col in df.columns]
 
+  # Mapeo flexible de columnas para evitar ceros
   col_map = {}
   for col in df.columns:
     c_lower = col.lower()
-    if 'time' in c_lower or 'date' in c_lower:
+    if 'time' in c_lower or 'date' in c_lower or 'fecha' in c_lower:
       col_map[col] = 'Time'
-    elif 'part' in c_lower:
+    elif 'part' in c_lower or 'id' in c_lower:
       col_map[col] = 'PartID'
-    elif 'feature' in c_lower:
+    elif 'feature' in c_lower or 'elem' in c_lower or 'caract' in c_lower:
       col_map[col] = 'FeatureName'
-    elif c_lower in ['x deviation', 'valx', 'x']:
+    elif ('x' in c_lower) and (
+        'dev' in c_lower
+        or 'val' in c_lower
+        or 'delta' in c_lower
+        or c_lower == 'x'
+    ):
       col_map[col] = 'ValX'
-    elif c_lower in ['y deviation', 'valy', 'y']:
+    elif ('y' in c_lower) and (
+        'dev' in c_lower
+        or 'val' in c_lower
+        or 'delta' in c_lower
+        or c_lower == 'y'
+    ):
       col_map[col] = 'ValY'
-    elif c_lower in ['z deviation', 'valz', 'z']:
+    elif ('z' in c_lower) and (
+        'dev' in c_lower
+        or 'val' in c_lower
+        or 'delta' in c_lower
+        or c_lower == 'z'
+    ):
       col_map[col] = 'ValZ'
 
   df = df.rename(columns=col_map)
+
+  if 'PartID' not in df.columns:
+    df['PartID'] = 'DEFAULT_PART'
+
   df = df.dropna(subset=['PartID']).copy()
 
   df['DateTime'] = (
@@ -164,7 +181,7 @@ def process_data(file):
 
   df = df.sort_values('DateTime').reset_index(drop=True)
 
-  # --- DETECCIÓN DE RUNS POR REPETICIÓN DE FEATURE (ESTILO VBA) ---
+  # Detección de Runs por repetición de Feature (Estilo VBA)
   run_tracker = {}
   mod_corner_history = {}
   run_nums = []
@@ -319,7 +336,7 @@ def process_data(file):
   return df, df_mod
 
 
-# --- INTERFAZ GRÁFICA DE STREAMLIT ---
+# --- INTERFAZ GRÁFICA DE STREAMLIT CON TABS ---
 
 
 def main():
@@ -344,7 +361,11 @@ def main():
 
     st.success('¡Archivo procesado con éxito!')
 
-    # Tarjetas de Métricas Superiores
+    # Diagnóstico de columnas detectadas (por si acaso)
+    with st.expander('🔍 Verificación de columnas detectadas en el archivo'):
+      st.write('Columnas originales en tu archivo:', list(df_raw.columns))
+
+    # Métricas Superiores
     col1, col2, col3, col4 = st.columns(4)
     total_runs = len(df_mod)
     passes = len(df_mod[df_mod['OverallPass'] == 'PASS'])
@@ -373,26 +394,44 @@ def main():
     if selected_date != 'TODAS':
       filtered_df = filtered_df[filtered_df['Date'] == selected_date]
 
-    st.subheader(f'Resultados Filtrados ({len(filtered_df)} registros)')
-    st.dataframe(filtered_df, use_container_width=True)
-
-    # Exportación a Excel
-    # Exportación a Excel
-    output = io.BytesIO()
-    with pd.ExcelWriter(output) as writer:
-      filtered_df.to_excel(
-          writer, sheet_name='Resultados_Metrologia', index=False
-      )
-    processed_data = output.getvalue()
-
-    st.download_button(
-        label='📥 Descargar Reporte en Excel',
-        data=processed_data,
-        file_name='Reporte_Metrologia_Procesado.xlsx',
-        mime=(
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        ),
+    # --- CREACIÓN DE TABS (PESTAÑAS) ---
+    tab1, tab2, tab3 = st.tabs(
+        ['📋 Resultados Filtrados', '❌ Solo Fallas (FAIL)', '📥 Exportar'
+        ]
     )
+
+    with tab1:
+      st.subheader(f'Registros Totales ({len(filtered_df)})')
+      st.dataframe(filtered_df, use_container_width=True)
+
+    with tab2:
+      st.subheader('Marcos Deformados o Fuera de Tolerancia')
+      fails_df = filtered_df[filtered_df['OverallPass'] == 'FAIL']
+      if not fails_df.empty:
+        st.dataframe(fails_df, use_container_width=True)
+      else:
+        st.success(
+            '¡Excelente! No hay registros con estatus FAIL bajo los filtros'
+            ' actuales.'
+        )
+
+    with tab3:
+      st.subheader('Descarga de Reportes')
+      output = io.BytesIO()
+      with pd.ExcelWriter(output) as writer:
+        filtered_df.to_excel(
+            writer, sheet_name='Resultados_Metrologia', index=False
+        )
+      processed_data = output.getvalue()
+
+      st.download_button(
+          label='📥 Descargar Reporte Filtrado en Excel',
+          data=processed_data,
+          file_name='Reporte_Metrologia_Procesado.xlsx',
+          mime=(
+              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          ),
+      )
   else:
     st.info(
         '👉 Por favor, carga un archivo de datos (Excel o CSV) en la parte'
