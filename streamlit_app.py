@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import plotly.express as px
 import math
 
 # -----------------------------------------------------------------------------
@@ -14,7 +13,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# Estado global para transferencia de selección entre pestañas
 if "selected_part_id" not in st.session_state:
     st.session_state["selected_part_id"] = None
 
@@ -41,6 +39,7 @@ NOMINALS = {
 MAX_DIAG_DELTA_TOL = 1.5
 ANGULAR_DEV_TOL = 0.15
 DIM_DELTA_TOL = 0.8
+POINT_DEV_TOL = 3.0  # Umbral para marcar desviaciones individuales en rojo
 
 def parse_english_datetime(date_str):
     if pd.isna(date_str):
@@ -138,13 +137,23 @@ def process_data(file):
     
     df["BatteryType"] = df.apply(lambda r: determine_battery_type(r["PartID"], r.get("FeatureName", "")), axis=1)
     df["Corner"] = df.apply(lambda r: extract_corner_index(r.get("FeatureName", ""), r["BatteryType"]), axis=1)
-    df["DateFormatted"] = df["DateTime"].dt.strftime('%Y-%m-%d').fillna("Unknown")
+    df["DateFormatted"] = df["DateTime"].dt.strftime('%d/%m/%Y').fillna("Unknown")
     df["CW"] = df["DateTime"].apply(lambda dt: f"CW{dt.isocalendar().week:02d}" if pd.notna(dt) else "CW00")
     
     df = df.sort_values("DateTime")
     
+    # -------------------------------------------------------------------------
+    # PROCESAMIENTO DE CORRIDAS (RUNS) Y CÁLCULOS GEOMÉTRICOS
+    # -------------------------------------------------------------------------
     modules = []
-    for (d_date, p_id), group in df.groupby(["DateFormatted", "PartID"]):
+    part_run_counters = {}
+    
+    for (d_date, p_id), group in df.groupby(["DateFormatted", "PartID"], sort=False):
+        # Asignar secuencia de Run # para la pieza
+        part_run_counters[p_id] = part_run_counters.get(p_id, 0) + 1
+        run_number = part_run_counters[p_id]
+        run_str = f"Run {run_number}"
+        
         b_type = group["BatteryType"].iloc[0]
         cw = group["CW"].iloc[0]
         dt_val = group["DateTime"].iloc[0]
@@ -189,9 +198,16 @@ def process_data(file):
         diff_largo = (l_left_act - l_left_nom) - (l_right_act - l_right_nom)
         angle_fl_dev = angle_fl_act - angle_fl_nom
         
-        if delta_diags > MAX_DIAG_DELTA_TOL:
+        # Conteo de coordenadas individuales fuera de especificación (Out-of-Spec Points)
+        out_of_spec_pts = 0
+        coords = [fl_dx, fl_dy, fr_dx, fr_dy, rl_dx, rl_dy, rr_dx, rr_dy]
+        for val in coords:
+            if abs(val) >= POINT_DEV_TOL:
+                out_of_spec_pts += 1
+
+        if delta_diags > MAX_DIAG_DELTA_TOL or out_of_spec_pts > 0:
             status_str = "DEFORMED"
-            overall_pass = "FAILED (NOK)"
+            overall_pass = "FAIL"
             if abs(angle_fl_dev) > ANGULAR_DEV_TOL and abs(diff_ancho) < DIM_DELTA_TOL:
                 detail_str = f"Parallelogram Distortion (Tilt: {angle_fl_dev:+.2f}°)"
             elif abs(diff_ancho) >= DIM_DELTA_TOL:
@@ -202,13 +218,15 @@ def process_data(file):
                 detail_str = f"Combined Asymmetry (Diag Delta: {delta_diags:.2f} mm)"
         else:
             status_str = "SQUARE OK"
-            overall_pass = "PASSED (OK)"
+            overall_pass = "PASS"
             detail_str = "Within Tolerance"
             
         modules.append({
-            "DateTime": dt_val, "Date": d_date, "CW": cw, "PartID": p_id, "BatteryType": b_type,
-            "FL_DX": fl_dx, "FL_DY": fl_dy, "FR_DX": fr_dx, "FR_DY": fr_dy,
-            "RL_DX": rl_dx, "RL_DY": rl_dy, "RR_DX": rr_dx, "RR_DY": rr_dy,
+            "DateTime": dt_val, "Date": d_date, "CW": cw, "PartID": p_id, 
+            "BatteryType": b_type, "RunNum": run_number, "Run": run_str,
+            "FL_X": fl_dx, "FL_Y": fl_dy, "FR_X": fr_dx, "FR_Y": fr_dy,
+            "RL_X": rl_dx, "RL_Y": rl_dy, "RR_X": rr_dx, "RR_Y": rr_dy,
+            "OutOfSpecPoints": out_of_spec_pts,
             "Diag1_Act": d1_act, "Diag2_Act": d2_act, "DeltaDiagonals": delta_diags,
             "WidthDelta": diff_ancho, "LengthDelta": diff_largo, "AngleDevFL": angle_fl_dev,
             "SquareStatus": status_str, "OverallPass": overall_pass, "RootCause": detail_str
@@ -250,16 +268,19 @@ if uploaded_file is not None:
         with tab1:
             st.subheader("📊 Executive Quality & FPY Performance")
             
-            total_mod = len(df_filtered)
-            pass_mod = len(df_filtered[df_filtered["OverallPass"] == "PASSED (OK)"])
-            fail_mod = len(df_filtered[df_filtered["OverallPass"] == "FAILED (NOK)"])
+            # FILTRADO EXCLUSIVO DE PRIMER RUN (RUN 1) PARA MEDIR FPY REAL
+            df_run1 = df_filtered[df_filtered["RunNum"] == 1]
+            
+            total_mod = len(df_run1)
+            pass_mod = len(df_run1[df_run1["OverallPass"] == "PASS"])
+            fail_mod = len(df_run1[df_run1["OverallPass"] == "FAIL"])
             fpy_global = (pass_mod / total_mod * 100) if total_mod > 0 else 0.0
             
-            # 1. TABLA SUPERIOR DE RESUMEN EJECUTIVO
-            st.markdown("##### 📋 FIRST-RUN QUALITY SUMMARY")
+            # 1. TABLA SUPERIOR DE RESUMEN EJECUTIVO (KPIs BASADOS EN RUN 1)
+            st.markdown("##### 📋 FIRST-RUN QUALITY SUMMARY (FIRST-PASS YIELD)")
             summary_data = {
                 "Metric": [
-                    "Unique Modules (Run)", 
+                    "Unique Modules Tested (First-Run)", 
                     "Passed First-Run (OK)", 
                     "Failed First-Run (NOK)", 
                     "First-Pass Yield (FPY)"
@@ -285,13 +306,13 @@ if uploaded_file is not None:
 
             st.divider()
 
-            # 2. GRÁFICO DE BARRAS APILADAS Y TABLA DESGLOSE SEMANAL
+            # 2. GRÁFICO DE BARRAS APILADAS Y TABLA DESGLOSE SEMANAL (SOLO RUN 1)
             col_chart, col_table = st.columns([1, 1], gap="large")
             
-            cw_summary = df_filtered.groupby("CW").agg(
+            cw_summary = df_run1.groupby("CW").agg(
                 Total=('PartID', 'count'),
-                Passed=('OverallPass', lambda x: (x == 'PASSED (OK)').sum()),
-                Failed=('OverallPass', lambda x: (x == 'FAILED (NOK)').sum())
+                Passed=('OverallPass', lambda x: (x == 'PASS').sum()),
+                Failed=('OverallPass', lambda x: (x == 'FAIL').sum())
             ).reset_index()
             
             cw_summary["PassRate"] = (cw_summary["Passed"] / cw_summary["Total"]) * 100
@@ -303,7 +324,6 @@ if uploaded_file is not None:
                 
                 fig_stacked = go.Figure()
                 
-                # Passed (Verde Muted)
                 fig_stacked.add_trace(go.Bar(
                     x=cw_summary["CW"], 
                     y=cw_summary["PassPct"],
@@ -311,7 +331,6 @@ if uploaded_file is not None:
                     marker_color="#2E7D32"
                 ))
                 
-                # Failed (Rojo Terracota Muted)
                 fig_stacked.add_trace(go.Bar(
                     x=cw_summary["CW"], 
                     y=cw_summary["FailPct"],
@@ -319,7 +338,6 @@ if uploaded_file is not None:
                     marker_color="#C62828"
                 ))
                 
-                # Línea Horizontal FPY Global
                 fig_stacked.add_hline(
                     y=fpy_global, 
                     line_dash="dash", 
@@ -379,32 +397,80 @@ if uploaded_file is not None:
                     }
                 )
 
+            st.divider()
+
+            # 3. TABLA DE REGISTRO COMPLETO DE MEDICIONES (INCLUYE RUNS Y RETRABAJOS)
+            st.markdown("### 📑 Detailed Measurement Log (All Runs & Retests)")
+            
+            display_runs = df_filtered[[
+                "Date", "CW", "PartID", "BatteryType", "Run",
+                "FL_X", "FL_Y", "FR_X", "FR_Y", "RL_X", "RL_Y", "RR_X", "RR_Y",
+                "OutOfSpecPoints", "OverallPass"
+            ]].rename(columns={
+                "PartID": "Part ID (Module)",
+                "BatteryType": "Type",
+                "Run": "Run #",
+                "OutOfSpecPoints": "Out-of-Spec Points",
+                "OverallPass": "Module Status"
+            })
+
+            def style_run_table(df):
+                styles = pd.DataFrame('', index=df.index, columns=df.columns)
+                
+                # Resaltar desviaciones individuales negativas/fuera de rango en rojo tenue
+                dev_cols = ["FL_X", "FL_Y", "FR_X", "FR_Y", "RL_X", "RL_Y", "RR_X", "RR_Y"]
+                for col in dev_cols:
+                    mask = df[col].apply(lambda v: abs(v) >= POINT_DEV_TOL or v < -3.0)
+                    styles.loc[mask, col] = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
+
+                # Resaltar Module Status (PASS / FAIL)
+                pass_mask = df["Module Status"] == "PASS"
+                fail_mask = df["Module Status"] == "FAIL"
+                styles.loc[pass_mask, "Module Status"] = 'background-color: #d4edda; color: #155724; font-weight: bold;'
+                styles.loc[fail_mask, "Module Status"] = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
+
+                return styles
+
+            formatted_runs = display_runs.style.apply(style_run_table, axis=None).format({
+                "FL_X": "{:.2f}", "FL_Y": "{:.2f}",
+                "FR_X": "{:.2f}", "FR_Y": "{:.2f}",
+                "RL_X": "{:.2f}", "RL_Y": "{:.2f}",
+                "RR_X": "{:.2f}", "RR_Y": "{:.2f}",
+                "Out-of-Spec Points": "{:d}"
+            })
+
+            st.dataframe(
+                formatted_runs,
+                use_container_width=True,
+                hide_index=True,
+                height=500
+            )
+
         # ---------------------------------------------------------------------
         # TAB 2: VECTOR SHIFT VISUALIZER
         # ---------------------------------------------------------------------
         with tab2:
             st.subheader("📐 Vector Shift Visualizer")
             
-            all_parts = list(df_filtered["PartID"].unique())
-            default_idx = 0
-            if st.session_state["selected_part_id"] in all_parts:
-                default_idx = all_parts.index(st.session_state["selected_part_id"])
+            # Selector que permite distinguir entre Módulo y su Run correspondiente
+            df_filtered["Part_Run_Label"] = df_filtered["PartID"] + " (" + df_filtered["Run"] + ")"
+            all_labels = list(df_filtered["Part_Run_Label"].unique())
             
             col_sel, col_scale = st.columns([2, 1])
-            selected_part = col_sel.selectbox("Seleccionar Módulo (Part ID):", all_parts, index=default_idx)
+            selected_label = col_sel.selectbox("Seleccionar Módulo y Corrida:", all_labels)
             scale = col_scale.slider("Factor de Magnificación:", min_value=1, max_value=50, value=20)
             
-            row = df_filtered[df_filtered["PartID"] == selected_part].iloc[0]
+            row = df_filtered[df_filtered["Part_Run_Label"] == selected_label].iloc[0]
             
             st.markdown("---")
             m1, m2, m3, m4, m5, m6 = st.columns(6)
             
-            pass_color = "🟢 PASS" if row["OverallPass"] == "PASSED (OK)" else "🔴 FAIL"
+            pass_color = "🟢 PASS" if row["OverallPass"] == "PASS" else "🔴 FAIL"
             square_color = "🟢 OK" if row["SquareStatus"] == "SQUARE OK" else "🔴 DEFORMED"
             
             m1.metric("Overall Result", pass_color)
             m2.metric("Squareness", square_color)
-            m3.metric("Type", row["BatteryType"])
+            m3.metric("Type & Run", f"{row['BatteryType']} | {row['Run']}")
             m4.metric("Calendar Week", row["CW"])
             m5.metric("Date", str(row["Date"]))
             m6.metric("Root Cause", row["RootCause"])
@@ -416,18 +482,18 @@ if uploaded_file is not None:
             y_nom = [nom["RL_Y"], nom["RR_Y"], nom["FR_Y"], nom["FL_Y"], nom["RL_Y"]]
             
             x_real = [
-                nom["RL_X"] + row["RL_DX"] * scale,
-                nom["RR_X"] + row["RR_DX"] * scale,
-                nom["FR_X"] + row["FR_DX"] * scale,
-                nom["FL_X"] + row["FL_DX"] * scale,
-                nom["RL_X"] + row["RL_DX"] * scale
+                nom["RL_X"] + row["RL_X"] * scale,
+                nom["RR_X"] + row["RR_X"] * scale,
+                nom["FR_X"] + row["FR_X"] * scale,
+                nom["FL_X"] + row["FL_X"] * scale,
+                nom["RL_X"] + row["RL_X"] * scale
             ]
             y_real = [
-                nom["RL_Y"] + row["RL_DY"] * scale,
-                nom["RR_Y"] + row["RR_DY"] * scale,
-                nom["FR_Y"] + row["FR_DY"] * scale,
-                nom["FL_Y"] + row["FL_DY"] * scale,
-                nom["RL_Y"] + row["RL_DY"] * scale
+                nom["RL_Y"] + row["RL_Y"] * scale,
+                nom["RR_Y"] + row["RR_Y"] * scale,
+                nom["FR_Y"] + row["FR_Y"] * scale,
+                nom["FL_Y"] + row["FL_Y"] * scale,
+                nom["RL_Y"] + row["RL_Y"] * scale
             ]
             
             fig = go.Figure()
@@ -437,7 +503,7 @@ if uploaded_file is not None:
             fig.add_trace(go.Scatter(x=x_real, y=y_real, mode='lines+markers', name=f'Medido ({scale}x Scale)', line=dict(color=color, width=3)))
             
             fig.update_layout(
-                title=f"Módulo: {row['PartID']} ({row['BatteryType']})",
+                title=f"Módulo: {row['PartID']} - {row['Run']} ({row['BatteryType']})",
                 xaxis_title="Eje X Fixture (mm)", yaxis_title="Eje Y Fixture (mm)",
                 yaxis=dict(scaleanchor="x", scaleratio=1), width=800, height=700
             )
@@ -448,17 +514,16 @@ if uploaded_file is not None:
         # ---------------------------------------------------------------------
         with tab3:
             st.subheader("🔍 Squareness & Geometric Inspection Table")
-            st.info("💡 **Tip:** Selecciona cualquier fila en la tabla para cargar automáticamente ese módulo en el **Vector Shift Visualizer**.")
             
             def highlight_deformed(val):
-                if val == "DEFORMED" or val == "FAILED (NOK)": 
+                if val == "DEFORMED" or val == "FAIL": 
                     return 'background-color: #ffc7ce; color: #9c0006; font-weight: bold;'
-                if val == "SQUARE OK" or val == "PASSED (OK)": 
+                if val == "SQUARE OK" or val == "PASS": 
                     return 'background-color: #c6efce; color: #006100;'
                 return ''
 
             display_df = df_filtered[[
-                "PartID", "OverallPass", "SquareStatus", "BatteryType", "CW", "Date",
+                "PartID", "Run", "OverallPass", "SquareStatus", "BatteryType", "CW", "Date",
                 "Diag1_Act", "Diag2_Act", "DeltaDiagonals", 
                 "WidthDelta", "LengthDelta", "AngleDevFL", "RootCause"
             ]]
@@ -474,14 +539,6 @@ if uploaded_file is not None:
                 selection_mode="single-row",
                 on_select="rerun"
             )
-            
-            selected_rows = selection.get("selection", {}).get("rows", [])
-            if selected_rows:
-                selected_index = selected_rows[0]
-                part_selected = display_df.iloc[selected_index]["PartID"]
-                st.session_state["selected_part_id"] = part_selected
-                
-                st.success(f"🎯 Módulo seleccionado: **{part_selected}**. Ve a la pestaña **Vector Shift Visualizer** para inspeccionarlo.")
 
 else:
     st.info("👆 Por favor sube un archivo `.xlsx` o `.csv` en la barra lateral para procesar el análisis.")
