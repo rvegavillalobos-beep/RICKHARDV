@@ -378,8 +378,7 @@ if uploaded_file is not None:
             if not df_summary.empty:
                 total_mods = len(df_summary)
                 
-                # Controles distribuidos en 3 columnas (usando slider de dos lados para rangos/secciones)
-                col_ctrl1, col_ctrl2, col_ctrl3 = st.columns(3)
+                col_ctrl1, col_ctrl2 = st.columns(2)
                 with col_ctrl1:
                     default_start = max(0, total_mods - 10)
                     default_end = max(0, total_mods - 1)
@@ -400,12 +399,8 @@ if uploaded_file is not None:
                         step=0.5,
                         help="At 1.0, shows exact actual coordinates. Higher values visually amplify deviations."
                     )
-                with col_ctrl3:
-                    show_tolerance_boxes = st.checkbox(
-                        f"Show ±{spec_limit}mm Tolerance Zones",
-                        value=True,
-                        help="Displays allowable X/Y tolerance square zones around each nominal corner vertex."
-                    )
+                
+                show_tolerance_boxes = True
                 
                 selected_mod = st.session_state["selected_mod_target"]
                 if selected_mod != "--- None / All ---":
@@ -428,8 +423,8 @@ if uploaded_file is not None:
 
                 fig = go.Figure()
                 
-                present_types = df_to_plot["BatteryType"].unique()
-                for b_type in present_types:
+                all_battery_types = df_summary["BatteryType"].unique()
+                for b_type in all_battery_types:
                     nom = get_nominal_coordinates(b_type)
                     nom_x = [nom["RL_X"], nom["FL_X"], nom["FR_X"], nom["RR_X"], nom["RL_X"]]
                     nom_y = [nom["RL_Y"], nom["FL_Y"], nom["FR_Y"], nom["RR_Y"], nom["RL_Y"]]
