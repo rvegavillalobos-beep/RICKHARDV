@@ -295,7 +295,7 @@ if uploaded_file is not None:
             
             col_t1, col_t2 = st.columns([1.2, 2.8])
             with col_t1:
-                st.markdown("##### FIRST-RUN QUALITY SUMMARY")
+                st.markdown("##### OVERALL SUMMARY")
                 st.dataframe(df_quality_summary, hide_index=True, use_container_width=True)
 
             with col_t2:
@@ -319,19 +319,29 @@ if uploaded_file is not None:
                         })
                     df_weekly = pd.DataFrame(weekly_data)
                     
-                    # Interactive Plotly Stacked Bar Chart with Professional Colors and Overall FPY Line
+                    # Prepare labels: omit if 0
+                    passed_text = [str(v) if v > 0 else "" for v in df_weekly["Passed"]]
+                    failed_text = [str(v) if v > 0 else "" for v in df_weekly["Failed"]]
+
+                    # Interactive Plotly Stacked Bar Chart with Professional Colors, Counts & Overall FPY Line
                     fig_weekly = go.Figure()
                     fig_weekly.add_trace(go.Bar(
                         x=df_weekly["CalendarWeek"],
                         y=df_weekly["PassRate"],
                         name="Passed (OK)",
-                        marker_color="#0f766e"  # Professional Deep Teal
+                        marker_color="#0f766e",  # Professional Deep Teal
+                        text=passed_text,
+                        textposition="inside",
+                        insidetextanchor="middle"
                     ))
                     fig_weekly.add_trace(go.Bar(
                         x=df_weekly["CalendarWeek"],
                         y=df_weekly["FailRate"],
                         name="Failed (NOK)",
-                        marker_color="#e11d48"  # Professional Slate Rose
+                        marker_color="#e11d48",  # Professional Slate Rose
+                        text=failed_text,
+                        textposition="inside",
+                        insidetextanchor="middle"
                     ))
                     fig_weekly.update_layout(
                         barmode="stack",
@@ -351,6 +361,14 @@ if uploaded_file is not None:
                     st.plotly_chart(fig_weekly, use_container_width=True)
                 else:
                     st.info("No Run 1 data available to generate the weekly trend.")
+
+            st.markdown("---")
+            st.markdown("##### 📅 WEEKLY PASS RATE & BREAKDOWN TABLE")
+            if not df_run1.empty:
+                df_weekly_display = df_weekly[["CalendarWeek", "Total", "Passed", "Failed", "PassRate"]].copy()
+                df_weekly_display["PassRate"] = df_weekly_display["PassRate"].apply(lambda x: f"{x:.1f}%")
+                df_weekly_display.columns = ["Calendar Week", "Total Parts", "Passed (OK)", "Failed (NOK)", "Pass Rate (FPY)"]
+                st.dataframe(df_weekly_display, hide_index=True, use_container_width=True)
 
             st.markdown("---")
             st.subheader("General Module Report (Chronological Order)")
