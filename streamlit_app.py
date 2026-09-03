@@ -373,31 +373,38 @@ if uploaded_file is not None:
             st.dataframe(style_report(df_summary, spec_limit), use_container_width=True)
 
         with tab2:
-            st.subheader("📈 Real Geometric Visualization")
+            st.subheader("📈 Real Geometric Visualization (Range Selector & Toggle)")
             
             if not df_summary.empty:
                 total_mods = len(df_summary)
-                default_start = max(0, total_mods - 10)
-                default_end = max(0, total_mods - 1)
-
-                # Se usan solo 2 columnas para que los controles aprovechen mejor el ancho
-                col_ctrl1, col_ctrl2 = st.columns([3, 1])
                 
+                # Controles distribuidos en 3 columnas (usando slider de dos lados para rangos/secciones)
+                col_ctrl1, col_ctrl2, col_ctrl3 = st.columns(3)
                 with col_ctrl1:
+                    default_start = max(0, total_mods - 10)
+                    default_end = max(0, total_mods - 1)
                     selected_range = st.slider(
-                        "Seleccionar Rango de Módulos (Índices):",
+                        "Select Battery Range (Index):",
                         min_value=0,
                         max_value=max(0, total_mods - 1),
                         value=(default_start, default_end),
-                        step=1
+                        step=1,
+                        help="Select a continuous section/range of batteries chronologically (from index start to end)."
                     )
                 with col_ctrl2:
                     exaggeration = st.slider(
-                        "Exageración:",
+                        "Deviation Exaggeration Factor:",
                         min_value=1.0,
                         max_value=20.0,
                         value=1.0,
-                        step=0.5
+                        step=0.5,
+                        help="At 1.0, shows exact actual coordinates. Higher values visually amplify deviations."
+                    )
+                with col_ctrl3:
+                    show_tolerance_boxes = st.checkbox(
+                        f"Show ±{spec_limit}mm Tolerance Zones",
+                        value=True,
+                        help="Displays allowable X/Y tolerance square zones around each nominal corner vertex."
                     )
                 
                 selected_mod = st.session_state["selected_mod_target"]
@@ -433,27 +440,27 @@ if uploaded_file is not None:
                         line=dict(color="green", width=2, dash="dash")
                     ))
                     
-                    # Las zonas de tolerancia siempre se muestran graficadas
-                    corners_dict = {
-                        "FL": (nom["FL_X"], nom["FL_Y"]),
-                        "FR": (nom["FR_X"], nom["FR_Y"]),
-                        "RL": (nom["RL_X"], nom["RL_Y"]),
-                        "RR": (nom["RR_X"], nom["RR_Y"])
-                    }
-                    for c_name, (cx, cy) in corners_dict.items():
-                        eff_limit = spec_limit * exaggeration
-                        t_xmin, t_xmax = cx - eff_limit, cx + eff_limit
-                        t_ymin, t_ymax = cy - eff_limit, cy + eff_limit
-                        t_box_x = [t_xmin, t_xmax, t_xmax, t_xmin, t_xmin]
-                        t_box_y = [t_ymin, t_ymin, t_ymax, t_ymax, t_ymin]
-                        fig.add_trace(go.Scatter(
-                            x=t_box_x, y=t_box_y,
-                            mode="lines",
-                            name=f"Tolerance Zone ±{spec_limit}mm ({b_type})",
-                            line=dict(color="rgba(217, 119, 6, 0.6)", width=1.5, dash="dot"),
-                            showlegend=(c_name == "FL"),
-                            hovertemplate=f"<b>Tolerance Zone:</b> ±{spec_limit}mm (Scaled {exaggeration}x)<br><b>Corner:</b> {c_name} ({b_type})<extra></extra>"
-                        ))
+                    if show_tolerance_boxes:
+                        corners_dict = {
+                            "FL": (nom["FL_X"], nom["FL_Y"]),
+                            "FR": (nom["FR_X"], nom["FR_Y"]),
+                            "RL": (nom["RL_X"], nom["RL_Y"]),
+                            "RR": (nom["RR_X"], nom["RR_Y"])
+                        }
+                        for c_name, (cx, cy) in corners_dict.items():
+                            eff_limit = spec_limit * exaggeration
+                            t_xmin, t_xmax = cx - eff_limit, cx + eff_limit
+                            t_ymin, t_ymax = cy - eff_limit, cy + eff_limit
+                            t_box_x = [t_xmin, t_xmax, t_xmax, t_xmin, t_xmin]
+                            t_box_y = [t_ymin, t_ymin, t_ymax, t_ymax, t_ymin]
+                            fig.add_trace(go.Scatter(
+                                x=t_box_x, y=t_box_y,
+                                mode="lines",
+                                name=f"Tolerance Zone ±{spec_limit}mm ({b_type})",
+                                line=dict(color="rgba(217, 119, 6, 0.6)", width=1.5, dash="dot"),
+                                showlegend=(c_name == "FL"),
+                                hovertemplate=f"<b>Tolerance Zone:</b> ±{spec_limit}mm (Scaled {exaggeration}x)<br><b>Corner:</b> {c_name} ({b_type})<extra></extra>"
+                            ))
                 
                 for _, row in df_to_plot.iterrows():
                     fl_x, fl_y = row["FL_X"], row["FL_Y"]
