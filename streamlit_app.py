@@ -82,6 +82,37 @@ def get_nominal_coordinates(bat_type: str):
         }
 
 
+def calculate_corner_angle(a, b, c):
+    v_ab = np.array(b) - np.array(a)
+    v_ac = np.array(c) - np.array(a)
+    dot_prod = np.dot(v_ab, v_ac)
+    mag_ab = np.linalg.norm(v_ab)
+    mag_ac = np.linalg.norm(v_ac)
+    if mag_ab == 0 or mag_ac == 0:
+        return 0.0
+    cos_theta = np.clip(dot_prod / (mag_ab * mag_ac), -1.0, 1.0)
+    return np.degrees(np.arccos(cos_theta))
+
+
+def evaluate_deformation(delta_diags, angle_fl_dev, diff_ancho, diff_largo, max_diag_tol):
+    angular_dev_tol = 0.15
+    dim_delta_tol = 0.8
+    if delta_diags > max_diag_tol:
+        status = "DEFORMED"
+        if abs(angle_fl_dev) > angular_dev_tol and abs(diff_ancho) < dim_delta_tol:
+            detail = f"PARALLELOGRAM DISTORTION (Tilt: {angle_fl_dev:+.2f}°)"
+        elif abs(diff_ancho) >= dim_delta_tol:
+            detail = f"TRAPEZOIDAL WIDTH VARIATION (Delta: {diff_ancho:+.2f} mm)"
+        elif abs(diff_largo) >= dim_delta_tol:
+            detail = f"TRAPEZOIDAL LENGTH VARIATION (Delta: {diff_largo:+.2f} mm)"
+        else:
+            detail = f"COMBINED ASYMMETRY (Diagonal Delta: {delta_diags:.2f} mm)"
+    else:
+        status = "SQUARE OK"
+        detail = "Geometry within acceptable tolerance"
+    return status, detail
+
+
 def style_report(df, limit):
     cols_to_check = ['FL_X', 'FL_Y', 'FR_X', 'FR_Y', 'RL_X', 'RL_Y', 'RR_X', 'RR_Y']
     def apply_styles(row):
@@ -302,7 +333,6 @@ if uploaded_file is not None:
                 
                 fig = go.Figure()
                 
-                # Dibujar perfiles nominales reales según los tipos presentes
                 present_types = df_to_plot["BatteryType"].unique()
                 for b_type in present_types:
                     nom = get_nominal_coordinates(b_type)
@@ -326,7 +356,6 @@ if uploaded_file is not None:
                         
                     nom = get_nominal_coordinates(row["BatteryType"])
                     
-                    # Coordenada Real = Nominal + (Desviación * Factor de Exageración)
                     act_rl_x = nom["RL_X"] + (rl_x * exaggeration)
                     act_rl_y = nom["RL_Y"] + (rl_y * exaggeration)
                     
@@ -380,7 +409,7 @@ if uploaded_file is not None:
                 st.warning("No hay datos disponibles para graficar.")
 
         with tab3:
-            st.subheader("Análisis de Escuadría y Diagonales")
+            st.subheader("📐 Análisis Avanzado de Escuadría y Causa Raíz de Deformación")
             squareness_records = []
 
             for _, row in df_summary.iterrows():
@@ -389,9 +418,18 @@ if uploaded_file is not None:
                     
                 nom = get_nominal_coordinates(row["BatteryType"])
                 
+                # Geometría Nominal Teórica
                 d1_nom = np.sqrt((nom["RR_X"] - nom["FL_X"])**2 + (nom["RR_Y"] - nom["FL_Y"])**2)
                 d2_nom = np.sqrt((nom["RL_X"] - nom["FR_X"])**2 + (nom["RL_Y"] - nom["FR_Y"])**2)
+                w_top_nom = np.sqrt((nom["FR_X"] - nom["FL_X"])**2 + (nom["FR_Y"] - nom["FL_Y"])**2)
+                w_bot_nom = np.sqrt((nom["RR_X"] - nom["RL_X"])**2 + (nom["RR_Y"] - nom["RL_Y"])**2)
+                l_left_nom = np.sqrt((nom["RL_X"] - nom["FL_X"])**2 + (nom["RL_Y"] - nom["FL_Y"])**2)
+                l_right_nom = np.sqrt((nom["RR_X"] - nom["FR_X"])**2 + (nom["RR_Y"] - nom["FR_Y"])**2)
+                angle_fl_nom = calculate_corner_angle(
+                    (nom["FL_X"], nom["FL_Y"]), (nom["FR_X"], nom["FR_Y"]), (nom["RL_X"], nom["RL_Y"])
+                )
 
+                # Coordenadas Reales
                 fl_x_act = nom["FL_X"] + row["FL_X"]
                 fl_y_act = nom["FL_Y"] + row["FL_Y"]
                 fr_x_act = nom["FR_X"] + row["FR_X"]
@@ -401,19 +439,40 @@ if uploaded_file is not None:
                 rr_x_act = nom["RR_X"] + row["RR_X"]
                 rr_y_act = nom["RR_Y"] + row["RR_Y"]
 
+                # Métricas Reales
                 d1_act = np.sqrt((rr_x_act - fl_x_act)**2 + (rr_y_act - fl_y_act)**2)
                 d2_act = np.sqrt((rl_x_act - fr_x_act)**2 + (rl_y_act - fr_y_act)**2)
+                w_top_act = np.sqrt((fr_x_act - fl_x_act)**2 + (fr_y_act - fl_y_act)**2)
+                w_bot_act = np.sqrt((rr_x_act - rl_x_act)**2 + (rr_y_act - rl_y_act)**2)
+                l_left_act = np.sqrt((rl_x_act - fl_x_act)**2 + (rl_y_act - fl_y_act)**2)
+                l_right_act = np.sqrt((rr_x_act - fr_x_act)**2 + (rr_y_act - fr_y_act)**2)
+                angle_fl_act = calculate_corner_angle(
+                    (fl_x_act, fl_y_act), (fr_x_act, fr_y_act), (rl_x_act, rl_y_act)
+                )
 
+                # Desviaciones y Deltas
                 delta_diags = abs((d1_act - d2_act) - (d1_nom - d2_nom))
-                status = "DEFORMED" if delta_diags > max_diag_tol else "SQUARE OK"
+                diff_ancho = (w_top_act - w_top_nom) - (w_bot_act - w_bot_nom)
+                diff_largo = (l_left_act - l_left_nom) - (l_right_act - l_right_nom)
+                angle_fl_dev = angle_fl_act - angle_fl_nom
+
+                status, detail = evaluate_deformation(
+                    delta_diags, angle_fl_dev, diff_ancho, diff_largo, max_diag_tol
+                )
 
                 squareness_records.append({
                     "Date": row["Date"],
                     "PartID": row["PartID"],
                     "RunNum": row["RunNum"],
                     "BatteryType": row["BatteryType"],
-                    "Diag Delta [mm]": round(delta_diags, 2),
+                    "Diag 1 [mm]": round(d1_act, 2),
+                    "Diag 2 [mm]": round(d2_act, 2),
+                    "Delta Diag [mm]": round(delta_diags, 2),
+                    "Width Delta [mm]": round(diff_ancho, 2),
+                    "Length Delta [mm]": round(diff_largo, 2),
+                    "FL Angular Dev [°]": round(angle_fl_dev, 2),
                     "Squareness Status": status,
+                    "Root Cause Details": detail
                 })
 
             df_squareness = pd.DataFrame(squareness_records)
