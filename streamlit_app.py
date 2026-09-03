@@ -308,15 +308,47 @@ if uploaded_file is not None:
                         w_passed = len(w_group[w_group["Status"] == "PASS"])
                         w_failed = len(w_group[w_group["Status"] == "FAIL"])
                         w_rate = (w_passed / w_total * 100) if w_total > 0 else 0
+                        w_fail_rate = (w_failed / w_total * 100) if w_total > 0 else 0
                         weekly_data.append({
                             "CalendarWeek": w,
-                            "Unique Modules": w_total,
-                            "Passed (OK)": w_passed,
-                            "Failed (NOK)": w_failed,
-                            "Pass Rate (%)": f"{w_rate:.1f}%"
+                            "Total": w_total,
+                            "Passed": w_passed,
+                            "Failed": w_failed,
+                            "PassRate": w_rate,
+                            "FailRate": w_fail_rate
                         })
                     df_weekly = pd.DataFrame(weekly_data)
-                    st.dataframe(df_weekly, hide_index=True, use_container_width=True)
+                    
+                    # Interactive Plotly Stacked Bar Chart with Professional Colors and Overall FPY Line
+                    fig_weekly = go.Figure()
+                    fig_weekly.add_trace(go.Bar(
+                        x=df_weekly["CalendarWeek"],
+                        y=df_weekly["PassRate"],
+                        name="Passed (OK)",
+                        marker_color="#0f766e"  # Professional Deep Teal
+                    ))
+                    fig_weekly.add_trace(go.Bar(
+                        x=df_weekly["CalendarWeek"],
+                        y=df_weekly["FailRate"],
+                        name="Failed (NOK)",
+                        marker_color="#e11d48"  # Professional Slate Rose
+                    ))
+                    fig_weekly.update_layout(
+                        barmode="stack",
+                        yaxis=dict(range=[0, 105], title="Percentage (%)"),
+                        xaxis=dict(title="Calendar Week"),
+                        height=350,
+                        margin=dict(l=20, r=20, t=30, b=20),
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                    )
+                    fig_weekly.add_hline(
+                        y=fpy_val,
+                        line_dash="dash",
+                        line_color="#d97706",  # Professional Amber / Gold
+                        annotation_text=f"Overall FPY: {fpy_val:.1f}%",
+                        annotation_position="top right"
+                    )
+                    st.plotly_chart(fig_weekly, use_container_width=True)
                 else:
                     st.info("No Run 1 data available to generate the weekly trend.")
 
@@ -353,10 +385,8 @@ if uploaded_file is not None:
                 if selected_mod != "--- None / All ---":
                     st.info(f"🔍 **Module selected for plot focus:** `{selected_mod}` (Highlighted in bright cyan)")
 
-                # Take the last N modules
                 df_to_plot = df_summary.tail(num_to_graph).copy()
                 
-                # Force inclusion of selected module if it falls outside the slider range
                 if selected_mod != "--- None / All ---":
                     target_row = None
                     for _, r in df_summary.iterrows():
