@@ -373,7 +373,7 @@ if uploaded_file is not None:
             st.dataframe(style_report(df_summary, spec_limit), use_container_width=True)
 
         with tab2:
-            st.subheader("📈 Real Geometric Visualization (Range Selector & Toggle)")
+            st.subheader("📈 Real Geometric Visualization (Permanent Tolerance Zones)")
             
             if not df_summary.empty:
                 total_mods = len(df_summary)
@@ -388,7 +388,7 @@ if uploaded_file is not None:
                         max_value=max(0, total_mods - 1),
                         value=(default_start, default_end),
                         step=1,
-                        help="Select a continuous section/range of batteries chronologically (from index start to end)."
+                        help="Select a continuous section/range of batteries chronologically."
                     )
                 with col_ctrl2:
                     exaggeration = st.slider(
@@ -397,10 +397,8 @@ if uploaded_file is not None:
                         max_value=20.0,
                         value=1.0,
                         step=0.5,
-                        help="At 1.0, shows exact actual coordinates. Higher values visually amplify deviations."
+                        help="Visually amplify deviations."
                     )
-                
-                show_tolerance_boxes = True
                 
                 selected_mod = st.session_state["selected_mod_target"]
                 if selected_mod != "--- None / All ---":
@@ -423,11 +421,14 @@ if uploaded_file is not None:
 
                 fig = go.Figure()
                 
+                # 1. ALWAYS ADD NOMINAL BASELINES AND PERMANENT UNCONDITIONAL TOLERANCE ZONES
                 all_battery_types = df_summary["BatteryType"].unique()
                 for b_type in all_battery_types:
                     nom = get_nominal_coordinates(b_type)
                     nom_x = [nom["RL_X"], nom["FL_X"], nom["FR_X"], nom["RR_X"], nom["RL_X"]]
                     nom_y = [nom["RL_Y"], nom["FL_Y"], nom["FR_Y"], nom["RR_Y"], nom["RL_Y"]]
+                    
+                    # Nominal Baseline Trace
                     fig.add_trace(go.Scatter(
                         x=nom_x, y=nom_y,
                         mode="lines",
@@ -435,28 +436,29 @@ if uploaded_file is not None:
                         line=dict(color="green", width=2, dash="dash")
                     ))
                     
-                    if show_tolerance_boxes:
-                        corners_dict = {
-                            "FL": (nom["FL_X"], nom["FL_Y"]),
-                            "FR": (nom["FR_X"], nom["FR_Y"]),
-                            "RL": (nom["RL_X"], nom["RL_Y"]),
-                            "RR": (nom["RR_X"], nom["RR_Y"])
-                        }
-                        for c_name, (cx, cy) in corners_dict.items():
-                            eff_limit = spec_limit * exaggeration
-                            t_xmin, t_xmax = cx - eff_limit, cx + eff_limit
-                            t_ymin, t_ymax = cy - eff_limit, cy + eff_limit
-                            t_box_x = [t_xmin, t_xmax, t_xmax, t_xmin, t_xmin]
-                            t_box_y = [t_ymin, t_ymin, t_ymax, t_ymax, t_ymin]
-                            fig.add_trace(go.Scatter(
-                                x=t_box_x, y=t_box_y,
-                                mode="lines",
-                                name=f"Tolerance Zone ±{spec_limit}mm ({b_type})",
-                                line=dict(color="rgba(217, 119, 6, 0.6)", width=1.5, dash="dot"),
-                                showlegend=(c_name == "FL"),
-                                hovertemplate=f"<b>Tolerance Zone:</b> ±{spec_limit}mm (Scaled {exaggeration}x)<br><b>Corner:</b> {c_name} ({b_type})<extra></extra>"
-                            ))
+                    # Unconditional Tolerance Zones (Guaranteed active priority layer - immune to selection/clicks)
+                    corners_dict = {
+                        "FL": (nom["FL_X"], nom["FL_Y"]),
+                        "FR": (nom["FR_X"], nom["FR_Y"]),
+                        "RL": (nom["RL_X"], nom["RL_Y"]),
+                        "RR": (nom["RR_X"], nom["RR_Y"])
+                    }
+                    for c_name, (cx, cy) in corners_dict.items():
+                        eff_limit = spec_limit * exaggeration
+                        t_xmin, t_xmax = cx - eff_limit, cx + eff_limit
+                        t_ymin, t_ymax = cy - eff_limit, cy + eff_limit
+                        t_box_x = [t_xmin, t_xmax, t_xmax, t_xmin, t_xmin]
+                        t_box_y = [t_ymin, t_ymin, t_ymax, t_ymax, t_ymin]
+                        fig.add_trace(go.Scatter(
+                            x=t_box_x, y=t_box_y,
+                            mode="lines",
+                            name=f"Tolerance Zone ±{spec_limit}mm ({b_type})",
+                            line=dict(color="rgba(217, 119, 6, 0.75)", width=1.5, dash="dot"),
+                            showlegend=(c_name == "FL"),
+                            hovertemplate=f"<b>Tolerance Zone:</b> ±{spec_limit}mm (Scaled {exaggeration}x)<br><b>Corner:</b> {c_name} ({b_type})<extra></extra>"
+                        ))
                 
+                # 2. Battery Modules Traces
                 for _, row in df_to_plot.iterrows():
                     fl_x, fl_y = row["FL_X"], row["FL_Y"]
                     fr_x, fr_y = row["FR_X"], row["FR_Y"]
@@ -480,7 +482,7 @@ if uploaded_file is not None:
                     mod_x = [act_rl_x, act_fl_x, act_fr_x, act_rr_x, act_rl_x]
                     mod_y = [act_rl_y, act_fl_y, act_fr_y, act_rr_y, act_rl_y]
                     
-                    mod_identifier = f"{row['PartID']} | Run {row['RunNum']} | {str(row['Date'])[:10]}"
+                    mod_identifier = f"{row['PartID']} | Run {row['RunNum']} | {str(r['Date'])[:10]}" if 'r' in locals() and pd.notna(row['Date']) else f"{row['PartID']} | Run {row['RunNum']} | {str(row['Date'])[:10]}"
                     is_targeted = (mod_identifier == selected_mod)
 
                     if is_targeted:
@@ -516,7 +518,7 @@ if uploaded_file is not None:
                     xaxis_title="Global X Axis [mm]",
                     yaxis_title="Global Y Axis [mm]",
                     height=700,
-                    title=f"Actual Geometry & Tolerance Zones (Indices {start_idx} to {end_idx}, Exaggeration {exaggeration}x)",
+                    title=f"Actual Geometry & Permanent Tolerance Zones (Indices {start_idx} to {end_idx}, Exaggeration {exaggeration}x)",
                     yaxis=dict(scaleanchor="x", scaleratio=1),
                     legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02)
                 )
