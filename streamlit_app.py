@@ -373,10 +373,11 @@ if uploaded_file is not None:
             st.dataframe(style_report(df_summary, spec_limit), use_container_width=True)
 
         with tab2:
-            st.subheader("📈 Real Geometric Visualization (With Exaggeration & Tolerance Zones)")
+            st.subheader("📈 Real Geometric Visualization (With Permanent Tolerance Zones)")
             
             if not df_summary.empty:
-                col_ctrl1, col_ctrl2, col_ctrl3 = st.columns(3)
+                # Controles distribuidos limpiamente en 2 columnas (sin el checkbox)
+                col_ctrl1, col_ctrl2 = st.columns(2)
                 with col_ctrl1:
                     total_mods = len(df_summary)
                     num_to_graph = st.slider(
@@ -395,12 +396,6 @@ if uploaded_file is not None:
                         value=1.0,
                         step=0.5,
                         help="At 1.0, shows exact actual coordinates. Higher values visually amplify deviations."
-                    )
-                with col_ctrl3:
-                    show_tolerance_boxes = st.checkbox(
-                        f"Show ±{spec_limit}mm Tolerance Zones",
-                        value=True,
-                        help="Displays allowable X/Y tolerance square zones around each nominal corner vertex."
                     )
                 
                 selected_mod = st.session_state["selected_mod_target"]
@@ -435,28 +430,27 @@ if uploaded_file is not None:
                         line=dict(color="green", width=2, dash="dash")
                     ))
                     
-                    if show_tolerance_boxes:
-                        corners_dict = {
-                            "FL": (nom["FL_X"], nom["FL_Y"]),
-                            "FR": (nom["FR_X"], nom["FR_Y"]),
-                            "RL": (nom["RL_X"], nom["RL_Y"]),
-                            "RR": (nom["RR_X"], nom["RR_Y"])
-                        }
-                        for c_name, (cx, cy) in corners_dict.items():
-                            # Scale tolerance box dynamically with the exaggeration factor
-                            eff_limit = spec_limit * exaggeration
-                            t_xmin, t_xmax = cx - eff_limit, cx + eff_limit
-                            t_ymin, t_ymax = cy - eff_limit, cy + eff_limit
-                            t_box_x = [t_xmin, t_xmax, t_xmax, t_xmin, t_xmin]
-                            t_box_y = [t_ymin, t_ymin, t_ymax, t_ymax, t_ymin]
-                            fig.add_trace(go.Scatter(
-                                x=t_box_x, y=t_box_y,
-                                mode="lines",
-                                name=f"Tolerance Zone ±{spec_limit}mm ({b_type})",
-                                line=dict(color="rgba(217, 119, 6, 0.6)", width=1.5, dash="dot"),
-                                showlegend=(c_name == "FL" and b_type == present_types[0]),
-                                hovertemplate=f"<b>Tolerance Zone:</b> ±{spec_limit}mm (Scaled {exaggeration}x)<br><b>Corner:</b> {c_name} ({b_type})<extra></extra>"
-                            ))
+                    # Cajas de tolerancia permanentes y escaladas correctamente al factor de exageración
+                    corners_dict = {
+                        "FL": (nom["FL_X"], nom["FL_Y"]),
+                        "FR": (nom["FR_X"], nom["FR_Y"]),
+                        "RL": (nom["RL_X"], nom["RL_Y"]),
+                        "RR": (nom["RR_X"], nom["RR_Y"])
+                    }
+                    for c_name, (cx, cy) in corners_dict.items():
+                        eff_limit = spec_limit * exaggeration
+                        t_xmin, t_xmax = cx - eff_limit, cx + eff_limit
+                        t_ymin, t_ymax = cy - eff_limit, cy + eff_limit
+                        t_box_x = [t_xmin, t_xmax, t_xmax, t_xmin, t_xmin]
+                        t_box_y = [t_ymin, t_ymin, t_ymax, t_ymax, t_ymin]
+                        fig.add_trace(go.Scatter(
+                            x=t_box_x, y=t_box_y,
+                            mode="lines",
+                            name=f"Tolerance Zone ±{spec_limit}mm ({b_type})",
+                            line=dict(color="rgba(217, 119, 6, 0.6)", width=1.5, dash="dot"),
+                            showlegend=(c_name == "FL"), # Muestra una entrada limpia por cada tipo de batería en la leyenda
+                            hovertemplate=f"<b>Tolerance Zone:</b> ±{spec_limit}mm (Scaled {exaggeration}x)<br><b>Corner:</b> {c_name} ({b_type})<extra></extra>"
+                        ))
                 
                 for _, row in df_to_plot.iterrows():
                     fl_x, fl_y = row["FL_X"], row["FL_Y"]
