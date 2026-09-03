@@ -443,8 +443,10 @@ if uploaded_file is not None:
                             "RR": (nom["RR_X"], nom["RR_Y"])
                         }
                         for c_name, (cx, cy) in corners_dict.items():
-                            t_xmin, t_xmax = cx - spec_limit, cx + spec_limit
-                            t_ymin, t_ymax = cy - spec_limit, cy + spec_limit
+                            # Scale tolerance box dynamically with the exaggeration factor
+                            eff_limit = spec_limit * exaggeration
+                            t_xmin, t_xmax = cx - eff_limit, cx + eff_limit
+                            t_ymin, t_ymax = cy - eff_limit, cy + eff_limit
                             t_box_x = [t_xmin, t_xmax, t_xmax, t_xmin, t_xmin]
                             t_box_y = [t_ymin, t_ymin, t_ymax, t_ymax, t_ymin]
                             fig.add_trace(go.Scatter(
@@ -453,7 +455,7 @@ if uploaded_file is not None:
                                 name=f"Tolerance Zone ±{spec_limit}mm ({b_type})",
                                 line=dict(color="rgba(217, 119, 6, 0.6)", width=1.5, dash="dot"),
                                 showlegend=(c_name == "FL" and b_type == present_types[0]),
-                                hovertemplate=f"<b>Tolerance Zone:</b> ±{spec_limit}mm<br><b>Corner:</b> {c_name} ({b_type})<extra></extra>"
+                                hovertemplate=f"<b>Tolerance Zone:</b> ±{spec_limit}mm (Scaled {exaggeration}x)<br><b>Corner:</b> {c_name} ({b_type})<extra></extra>"
                             ))
                 
                 for _, row in df_to_plot.iterrows():
