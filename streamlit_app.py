@@ -10,9 +10,9 @@ st.set_page_config(
     layout="wide",
 )
 
-# Inicializar Session State para selección de módulos entre pestañas
+# Initialize Session State for cross-tab module selection
 if "selected_mod_target" not in st.session_state:
-    st.session_state["selected_mod_target"] = "-- Ninguno / Todos --"
+    st.session_state["selected_mod_target"] = "--- None / All ---"
 
 
 def determine_battery_type(part_id: str, feature_name: str) -> str:
@@ -155,13 +155,13 @@ def style_squareness_report(df, diag_limit):
     return df.style.apply(apply_styles, axis=1)
 
 
-st.title("⚙️ Módulo de Control de Calidad y Análisis Geométrico")
+st.title("⚙️ Quality Control & Geometric Analysis Module")
 
-st.sidebar.header("🛠️ Configuración y Tolerancias")
-max_diag_tol = st.sidebar.slider("Tolerancia Máx. Delta Diagonales [mm]", 1.0, 10.0, 1.5, 0.5)
-spec_limit = st.sidebar.slider("Límite de Especificación X/Y [±mm]", 1.0, 5.0, 3.0, 0.5)
+st.sidebar.header("🛠️ Configuration & Tolerances")
+max_diag_tol = st.sidebar.slider("Max. Diagonal Delta Tolerance [mm]", 1.0, 10.0, 1.5, 0.5)
+spec_limit = st.sidebar.slider("X/Y Specification Limit [±mm]", 1.0, 5.0, 3.0, 0.5)
 
-uploaded_file = st.file_uploader("Sube tu archivo de datos raw (Excel o CSV)", type=["xlsx", "xls", "csv"])
+uploaded_file = st.file_uploader("Upload your raw data file (Excel or CSV)", type=["xlsx", "xls", "csv"])
 
 if uploaded_file is not None:
     try:
@@ -263,13 +263,13 @@ if uploaded_file is not None:
         df_summary = df_summary[cols]
 
         tab1, tab2, tab3 = st.tabs([
-            "📊 Resumen General & FPY", 
-            "📈 Gráfica Geométrica Interactiva", 
-            "📐 Análisis de Escuadría"
+            "📊 General Summary & FPY", 
+            "📈 Interactive Geometric Plot", 
+            "📐 Squareness Analysis"
         ])
 
         with tab1:
-            st.subheader("📋 Resumen de Calidad de Primer Intento (First-Run)")
+            st.subheader("📋 First-Run Quality Summary")
 
             df_run1 = df_summary[df_summary["RunNum"] == 1]
             total_run1 = len(df_run1)
@@ -318,46 +318,46 @@ if uploaded_file is not None:
                     df_weekly = pd.DataFrame(weekly_data)
                     st.dataframe(df_weekly, hide_index=True, use_container_width=True)
                 else:
-                    st.info("No hay datos de Run 1 para generar la tendencia semanal.")
+                    st.info("No Run 1 data available to generate the weekly trend.")
 
             st.markdown("---")
-            st.subheader("Reporte General de Módulos (Orden Cronológico)")
+            st.subheader("General Module Report (Chronological Order)")
             st.dataframe(style_report(df_summary, spec_limit), use_container_width=True)
 
         with tab2:
-            st.subheader("📈 Visualización Geométrica Real (Con Factor de Exageración)")
+            st.subheader("📈 Real Geometric Visualization (With Exaggeration Factor)")
             
             if not df_summary.empty:
                 col_ctrl1, col_ctrl2 = st.columns(2)
                 with col_ctrl1:
                     total_mods = len(df_summary)
                     num_to_graph = st.slider(
-                        "Número de baterías recientes a graficar:",
+                        "Number of recent batteries to plot:",
                         min_value=1,
                         max_value=max(1, total_mods),
                         value=min(10, total_mods),
                         step=1,
-                        help="Toma las baterías más recientes (del más nuevo al más viejo)."
+                        help="Takes the most recent batteries (from newest to oldest)."
                     )
                 with col_ctrl2:
                     exaggeration = st.slider(
-                        "Factor de Exageración de Desviaciones:",
+                        "Deviation Exaggeration Factor:",
                         min_value=1.0,
                         max_value=20.0,
                         value=1.0,
                         step=0.5,
-                        help="En 1.0 muestra las coordenadas reales exactas. Valores mayores amplifican visualmente las desviaciones."
+                        help="At 1.0, shows exact actual coordinates. Higher values visually amplify deviations."
                     )
                 
                 selected_mod = st.session_state["selected_mod_target"]
-                if selected_mod != "-- Ninguno / Todos --":
-                    st.info(f"🔍 **Módulo seleccionado para enfoque en gráfico:** `{selected_mod}` (Resaltado en cian brillante)")
+                if selected_mod != "--- None / All ---":
+                    st.info(f"🔍 **Module selected for plot focus:** `{selected_mod}` (Highlighted in bright cyan)")
 
-                # Tomar los últimos N módulos
+                # Take the last N modules
                 df_to_plot = df_summary.tail(num_to_graph).copy()
                 
-                # Forzar inclusión del módulo seleccionado si está fuera del rango del slider
-                if selected_mod != "-- Ninguno / Todos --":
+                # Force inclusion of selected module if it falls outside the slider range
+                if selected_mod != "--- None / All ---":
                     target_row = None
                     for _, r in df_summary.iterrows():
                         mod_id = f"{r['PartID']} | Run {r['RunNum']} | {str(r['Date'])[:10]}"
@@ -379,7 +379,7 @@ if uploaded_file is not None:
                     fig.add_trace(go.Scatter(
                         x=nom_x, y=nom_y,
                         mode="lines",
-                        name=f"Nominal Real ({b_type})",
+                        name=f"Nominal Baseline ({b_type})",
                         line=dict(color="green", width=2, dash="dash")
                     ))
                 
@@ -410,10 +410,10 @@ if uploaded_file is not None:
                     is_targeted = (mod_identifier == selected_mod)
 
                     if is_targeted:
-                        color = "#00e6ff"  # Cian brillante
+                        color = "#00e6ff"  # Bright cyan
                         opacity = 1.0
                         width = 4
-                        label = f"⭐ {mod_identifier} [SELECCIONADO]"
+                        label = f"⭐ {mod_identifier} [SELECTED]"
                     else:
                         status = row["Status"]
                         color = "red" if status == "FAIL" else "gray"
@@ -432,27 +432,27 @@ if uploaded_file is not None:
                             f"<b>PartID:</b> {row['PartID']}<br>"
                             f"<b>Run:</b> {row['RunNum']}<br>"
                             f"<b>Status:</b> {status}<br>"
-                            f"<b>Tipo:</b> {row['BatteryType']}<br>"
-                            f"<b>Exageración:</b> {exaggeration}x<br>"
-                            f"<b>Fecha:</b> {row['Date']}<extra></extra>"
+                            f"<b>Type:</b> {row['BatteryType']}<br>"
+                            f"<b>Exaggeration:</b> {exaggeration}x<br>"
+                            f"<b>Date:</b> {row['Date']}<extra></extra>"
                         )
                     ))
                 
                 fig.update_layout(
-                    xaxis_title="Eje X Global [mm]",
-                    yaxis_title="Eje Y Global [mm]",
+                    xaxis_title="Global X Axis [mm]",
+                    yaxis_title="Global Y Axis [mm]",
                     height=700,
-                    title=f"Geometría Real - Visualización Interactiva (Exageración {exaggeration}x)",
+                    title=f"Actual Geometry - Interactive Visualization (Exaggeration {exaggeration}x)",
                     yaxis=dict(scaleanchor="x", scaleratio=1),
                     legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02)
                 )
                 
                 st.plotly_chart(fig, use_container_width=True)
             else:
-                st.warning("No hay datos disponibles para graficar.")
+                st.warning("No data available to plot.")
 
         with tab3:
-            st.subheader("📐 Análisis Avanzado de Escuadría y Causa Raíz de Deformación")
+            st.subheader("📐 Advanced Squareness & Deformation Root Cause Analysis")
             squareness_records = []
 
             for _, row in df_summary.iterrows():
@@ -516,14 +516,13 @@ if uploaded_file is not None:
 
             df_squareness = pd.DataFrame(squareness_records)
             if not df_squareness.empty:
-                st.markdown("💡 **Tip de selección:** **Haz clic en cualquier fila de la tabla** para seleccionarla y resaltarla automáticamente en color cian brillante en la *Gráfica Interactiva (Tab 2)*.")
+                st.markdown("💡 **Selection Tip:** **Click on any row in the table** to select and automatically highlight it in bright cyan in the *Interactive Plot (Tab 2)*.")
                 
-                if st.session_state["selected_mod_target"] != "-- Ninguno / Todos --":
-                    if st.button("🔄 Limpiar selección actual"):
-                        st.session_state["selected_mod_target"] = "-- Ninguno / Todos --"
+                if st.session_state["selected_mod_target"] != "--- None / All ---":
+                    if st.button("🔄 Clear Current Selection"):
+                        st.session_state["selected_mod_target"] = "--- None / All ---"
                         st.rerun()
 
-                # Tabla interactiva con selección de fila por clic y estilo en rojo
                 event = st.dataframe(
                     style_squareness_report(df_squareness, max_diag_tol),
                     use_container_width=True,
@@ -541,7 +540,7 @@ if uploaded_file is not None:
                         st.session_state["selected_mod_target"] = new_target
                         st.rerun()
             else:
-                st.info("No hay suficientes datos completos de 4 esquinas para calcular escuadría.")
+                st.info("Not enough complete 4-corner data available to calculate squareness.")
 
         st.markdown("---")
         output = io.BytesIO()
@@ -556,11 +555,11 @@ if uploaded_file is not None:
         processed_data = output.getvalue()
 
         st.download_button(
-            label="📥 Descargar Reporte Completo en Excel",
+            label="📥 Download Complete Excel Report",
             data=processed_data,
             file_name="Quality_Analysis_Report.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
     except Exception as e:
-        st.error(f"Ocurrió un error al procesar el archivo. Detalle: {e}")
+        st.error(f"An error occurred while processing the file. Detail: {e}")
