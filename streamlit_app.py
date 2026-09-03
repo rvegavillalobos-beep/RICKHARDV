@@ -10,6 +10,10 @@ st.set_page_config(
     layout="wide",
 )
 
+# Inicializar Session State para selección de módulos entre pestañas
+if "selected_mod_target" not in st.session_state:
+    st.session_state["selected_mod_target"] = "-- Ninguno / Todos --"
+
 
 def determine_battery_type(part_id: str, feature_name: str) -> str:
     p_id = str(part_id).upper().strip()
@@ -135,10 +139,27 @@ def style_report(df, limit):
     return df.style.apply(apply_styles, axis=1)
 
 
+def style_squareness_report(df, diag_limit):
+    def apply_styles(row):
+        styles = [''] * len(row)
+        for i, col in enumerate(row.index):
+            if col == 'Delta Diag [mm]' and pd.notna(row[col]):
+                try:
+                    if float(row[col]) > diag_limit:
+                        styles[i] = 'background-color: #ff4d4d; color: white; font-weight: bold;'
+                except:
+                    pass
+            if col == 'Squareness Status' and str(row[col]) == 'DEFORMED':
+                styles[i] = 'background-color: #ff4d4d; color: white; font-weight: bold;'
+        return styles
+    return df.style.apply(apply_styles, axis=1)
+
+
 st.title("⚙️ Módulo de Control de Calidad y Análisis Geométrico")
 
 st.sidebar.header("🛠️ Configuración y Tolerancias")
-max_diag_tol = st.sidebar.slider("Tolerancia Máx. Delta Diagonales [mm]", 0.5, 3.0, 1.5, 0.1)
+# Slider ampliado de 1.0 a 10.0 mm
+max_diag_tol = st.sidebar.slider("Tolerancia Máx. Delta Diagonales [mm]", 1.0, 10.0, 1.5, 0.5)
 spec_limit = st.sidebar.slider("Límite de Especificación X/Y [±mm]", 1.0, 5.0, 3.0, 0.5)
 
 uploaded_file = st.file_uploader("Sube tu archivo de datos raw (Excel o CSV)", type=["xlsx", "xls", "csv"])
@@ -329,6 +350,11 @@ if uploaded_file is not None:
                         help="En 1.0 muestra las coordenadas reales exactas. Valores mayores amplifican visualmente las desviaciones."
                     )
                 
+                # Indicador si hay un módulo seleccionado desde la Tab 3
+                selected_mod = st.session_state["selected_mod_target"]
+                if selected_mod != "-- Ninguno / Todos --":
+                    st.info(f"🔍 **Módulo seleccionado para enfoque en gráfico:** `{selected_mod}` (Se resaltará en color cian/naranja)")
+
                 df_to_plot = df_summary.tail(num_to_graph)
                 
                 fig = go.Figure()
@@ -358,37 +384,43 @@ if uploaded_file is not None:
                     
                     act_rl_x = nom["RL_X"] + (rl_x * exaggeration)
                     act_rl_y = nom["RL_Y"] + (rl_y * exaggeration)
-                    
                     act_fl_x = nom["FL_X"] + (fl_x * exaggeration)
                     act_fl_y = nom["FL_Y"] + (fl_y * exaggeration)
-                    
                     act_fr_x = nom["FR_X"] + (fr_x * exaggeration)
                     act_fr_y = nom["FR_Y"] + (fr_y * exaggeration)
-                    
                     act_rr_x = nom["RR_X"] + (rr_x * exaggeration)
                     act_rr_y = nom["RR_Y"] + (rr_y * exaggeration)
                     
                     mod_x = [act_rl_x, act_fl_x, act_fr_x, act_rr_x, act_rl_x]
                     mod_y = [act_rl_y, act_fl_y, act_fr_y, act_rr_y, act_rl_y]
                     
-                    status = row["Status"]
-                    color = "red" if status == "FAIL" else "gray"
-                    opacity = 0.8 if status == "FAIL" else 0.4
-                    width = 2 if status == "FAIL" else 1
-                    
-                    label = f"{row['PartID']} (Run {row['RunNum']}) [{status}]"
+                    # Ver si coincide con el seleccionado en Tab 3
+                    mod_identifier = f"{row['PartID']} | Run {row['RunNum']} | {str(row['Date'])[:10]}"
+                    is_targeted = (mod_identifier == selected_mod)
+
+                    if is_targeted:
+                        color = "#00e6ff"  # Cian brillante para destacar
+                        opacity = 1.0
+                        width = 4
+                        label = f"⭐ {mod_identifier} [SELECCIONADO]"
+                    else:
+                        status = row["Status"]
+                        color = "red" if status == "FAIL" else "gray"
+                        opacity = 0.8 if status == "FAIL" else 0.4
+                        width = 2 if status == "FAIL" else 1
+                        label = f"{row['PartID']} (Run {row['RunNum']}) [{status}]"
                     
                     fig.add_trace(go.Scatter(
                         x=mod_x, y=mod_y,
                         mode="lines+markers",
                         name=label,
                         line=dict(color=color, width=width),
-                        marker=dict(size=4),
+                        marker=dict(size=6 if is_targeted else 4),
                         opacity=opacity,
                         hovertemplate=(
                             f"<b>PartID:</b> {row['PartID']}<br>"
                             f"<b>Run:</b> {row['RunNum']}<br>"
-                            f"<b>Status:</b> {status}<br>"
+                            f"<b>Status:</b> {row['Status']}<br>"
                             f"<b>Tipo:</b> {row['BatteryType']}<br>"
                             f"<b>Exageración:</b> {exaggeration}x<br>"
                             f"<b>Fecha:</b> {row['Date']}<extra></extra>"
@@ -477,7 +509,18 @@ if uploaded_file is not None:
 
             df_squareness = pd.DataFrame(squareness_records)
             if not df_squareness.empty:
-                st.dataframe(df_squareness, use_container_width=True)
+                # Selector interactivo para enviar a la Tab 2
+                mod_options = ["-- Ninguno / Todos --"] + [f"{r['PartID']} | Run {r['RunNum']} | {str(r['Date'])[:10]}" for _, r in df_squareness.iterrows()]
+                
+                selected_choice = st.selectbox(
+                    "🎯 Seleccionar módulo específico para inspección visual y resaltar en la Gráfica Interactiva (Tab 2):",
+                    options=mod_options,
+                    index=mod_options.index(st.session_state["selected_mod_target"]) if st.session_state["selected_mod_target"] in mod_options else 0
+                )
+                st.session_state["selected_mod_target"] = selected_choice
+
+                # Mostrar tabla con el reporte de escuadría aplicando estilo en rojo
+                st.dataframe(style_squareness_report(df_squareness, max_diag_tol), use_container_width=True)
             else:
                 st.info("No hay suficientes datos completos de 4 esquinas para calcular escuadría.")
 
