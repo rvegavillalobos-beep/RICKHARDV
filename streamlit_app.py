@@ -158,7 +158,6 @@ def style_squareness_report(df, diag_limit):
 st.title("⚙️ Módulo de Control de Calidad y Análisis Geométrico")
 
 st.sidebar.header("🛠️ Configuración y Tolerancias")
-# Slider ampliado de 1.0 a 10.0 mm
 max_diag_tol = st.sidebar.slider("Tolerancia Máx. Delta Diagonales [mm]", 1.0, 10.0, 1.5, 0.5)
 spec_limit = st.sidebar.slider("Límite de Especificación X/Y [±mm]", 1.0, 5.0, 3.0, 0.5)
 
@@ -350,13 +349,26 @@ if uploaded_file is not None:
                         help="En 1.0 muestra las coordenadas reales exactas. Valores mayores amplifican visualmente las desviaciones."
                     )
                 
-                # Indicador si hay un módulo seleccionado desde la Tab 3
                 selected_mod = st.session_state["selected_mod_target"]
                 if selected_mod != "-- Ninguno / Todos --":
-                    st.info(f"🔍 **Módulo seleccionado para enfoque en gráfico:** `{selected_mod}` (Se resaltará en color cian/naranja)")
+                    st.info(f"🔍 **Módulo seleccionado para enfoque en gráfico:** `{selected_mod}` (Resaltado en cian brillante)")
 
-                df_to_plot = df_summary.tail(num_to_graph)
+                # Tomar los últimos N módulos
+                df_to_plot = df_summary.tail(num_to_graph).copy()
                 
+                # Forzar inclusión del módulo seleccionado si está fuera del rango del slider
+                if selected_mod != "-- Ninguno / Todos --":
+                    target_row = None
+                    for _, r in df_summary.iterrows():
+                        mod_id = f"{r['PartID']} | Run {r['RunNum']} | {str(r['Date'])[:10]}"
+                        if mod_id == selected_mod:
+                            target_row = r
+                            break
+                    if target_row is not None:
+                        in_plot = any(f"{r['PartID']} | Run {r['RunNum']} | {str(r['Date'])[:10]}" == selected_mod for _, r in df_to_plot.iterrows())
+                        if not in_plot:
+                            df_to_plot = pd.concat([df_to_plot, pd.DataFrame([target_row])]).drop_duplicates().reset_index(drop=True)
+
                 fig = go.Figure()
                 
                 present_types = df_to_plot["BatteryType"].unique()
@@ -394,12 +406,11 @@ if uploaded_file is not None:
                     mod_x = [act_rl_x, act_fl_x, act_fr_x, act_rr_x, act_rl_x]
                     mod_y = [act_rl_y, act_fl_y, act_fr_y, act_rr_y, act_rl_y]
                     
-                    # Ver si coincide con el seleccionado en Tab 3
                     mod_identifier = f"{row['PartID']} | Run {row['RunNum']} | {str(row['Date'])[:10]}"
                     is_targeted = (mod_identifier == selected_mod)
 
                     if is_targeted:
-                        color = "#00e6ff"  # Cian brillante para destacar
+                        color = "#00e6ff"  # Cian brillante
                         opacity = 1.0
                         width = 4
                         label = f"⭐ {mod_identifier} [SELECCIONADO]"
@@ -420,7 +431,7 @@ if uploaded_file is not None:
                         hovertemplate=(
                             f"<b>PartID:</b> {row['PartID']}<br>"
                             f"<b>Run:</b> {row['RunNum']}<br>"
-                            f"<b>Status:</b> {row['Status']}<br>"
+                            f"<b>Status:</b> {status}<br>"
                             f"<b>Tipo:</b> {row['BatteryType']}<br>"
                             f"<b>Exageración:</b> {exaggeration}x<br>"
                             f"<b>Fecha:</b> {row['Date']}<extra></extra>"
@@ -431,7 +442,7 @@ if uploaded_file is not None:
                     xaxis_title="Eje X Global [mm]",
                     yaxis_title="Eje Y Global [mm]",
                     height=700,
-                    title=f"Geometría Real - Últimos {num_to_graph} Módulos (Exageración {exaggeration}x)",
+                    title=f"Geometría Real - Visualización Interactiva (Exageración {exaggeration}x)",
                     yaxis=dict(scaleanchor="x", scaleratio=1),
                     legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02)
                 )
@@ -450,7 +461,6 @@ if uploaded_file is not None:
                     
                 nom = get_nominal_coordinates(row["BatteryType"])
                 
-                # Geometría Nominal Teórica
                 d1_nom = np.sqrt((nom["RR_X"] - nom["FL_X"])**2 + (nom["RR_Y"] - nom["FL_Y"])**2)
                 d2_nom = np.sqrt((nom["RL_X"] - nom["FR_X"])**2 + (nom["RL_Y"] - nom["FR_Y"])**2)
                 w_top_nom = np.sqrt((nom["FR_X"] - nom["FL_X"])**2 + (nom["FR_Y"] - nom["FL_Y"])**2)
@@ -461,7 +471,6 @@ if uploaded_file is not None:
                     (nom["FL_X"], nom["FL_Y"]), (nom["FR_X"], nom["FR_Y"]), (nom["RL_X"], nom["RL_Y"])
                 )
 
-                # Coordenadas Reales
                 fl_x_act = nom["FL_X"] + row["FL_X"]
                 fl_y_act = nom["FL_Y"] + row["FL_Y"]
                 fr_x_act = nom["FR_X"] + row["FR_X"]
@@ -471,7 +480,6 @@ if uploaded_file is not None:
                 rr_x_act = nom["RR_X"] + row["RR_X"]
                 rr_y_act = nom["RR_Y"] + row["RR_Y"]
 
-                # Métricas Reales
                 d1_act = np.sqrt((rr_x_act - fl_x_act)**2 + (rr_y_act - fl_y_act)**2)
                 d2_act = np.sqrt((rl_x_act - fr_x_act)**2 + (rl_y_act - fr_y_act)**2)
                 w_top_act = np.sqrt((fr_x_act - fl_x_act)**2 + (fr_y_act - fl_y_act)**2)
@@ -482,7 +490,6 @@ if uploaded_file is not None:
                     (fl_x_act, fl_y_act), (fr_x_act, fr_y_act), (rl_x_act, rl_y_act)
                 )
 
-                # Desviaciones y Deltas
                 delta_diags = abs((d1_act - d2_act) - (d1_nom - d2_nom))
                 diff_ancho = (w_top_act - w_top_nom) - (w_bot_act - w_bot_nom)
                 diff_largo = (l_left_act - l_left_nom) - (l_right_act - l_right_nom)
@@ -509,18 +516,30 @@ if uploaded_file is not None:
 
             df_squareness = pd.DataFrame(squareness_records)
             if not df_squareness.empty:
-                # Selector interactivo para enviar a la Tab 2
-                mod_options = ["-- Ninguno / Todos --"] + [f"{r['PartID']} | Run {r['RunNum']} | {str(r['Date'])[:10]}" for _, r in df_squareness.iterrows()]
+                st.markdown("💡 **Tip de selección:** **Haz clic en cualquier fila de la tabla** para seleccionarla y resaltarla automáticamente en color cian brillante en la *Gráfica Interactiva (Tab 2)*.")
                 
-                selected_choice = st.selectbox(
-                    "🎯 Seleccionar módulo específico para inspección visual y resaltar en la Gráfica Interactiva (Tab 2):",
-                    options=mod_options,
-                    index=mod_options.index(st.session_state["selected_mod_target"]) if st.session_state["selected_mod_target"] in mod_options else 0
-                )
-                st.session_state["selected_mod_target"] = selected_choice
+                if st.session_state["selected_mod_target"] != "-- Ninguno / Todos --":
+                    if st.button("🔄 Limpiar selección actual"):
+                        st.session_state["selected_mod_target"] = "-- Ninguno / Todos --"
+                        st.rerun()
 
-                # Mostrar tabla con el reporte de escuadría aplicando estilo en rojo
-                st.dataframe(style_squareness_report(df_squareness, max_diag_tol), use_container_width=True)
+                # Tabla interactiva con selección de fila por clic y estilo en rojo
+                event = st.dataframe(
+                    style_squareness_report(df_squareness, max_diag_tol),
+                    use_container_width=True,
+                    selection_mode="single-row",
+                    on_select="rerun",
+                    key="sq_table_selection"
+                )
+                
+                selected_rows = event.selection.rows
+                if selected_rows:
+                    row_idx = selected_rows[0]
+                    r_sel = df_squareness.iloc[row_idx]
+                    new_target = f"{r_sel['PartID']} | Run {r_sel['RunNum']} | {str(r_sel['Date'])[:10]}"
+                    if new_target != st.session_state["selected_mod_target"]:
+                        st.session_state["selected_mod_target"] = new_target
+                        st.rerun()
             else:
                 st.info("No hay suficientes datos completos de 4 esquinas para calcular escuadría.")
 
