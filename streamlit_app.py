@@ -319,17 +319,15 @@ if uploaded_file is not None:
                         })
                     df_weekly = pd.DataFrame(weekly_data)
                     
-                    # Prepare labels: omit if 0
                     passed_text = [str(v) if v > 0 else "" for v in df_weekly["Passed"]]
                     failed_text = [str(v) if v > 0 else "" for v in df_weekly["Failed"]]
 
-                    # Interactive Plotly Stacked Bar Chart with Professional Colors, Counts & Overall FPY Line
                     fig_weekly = go.Figure()
                     fig_weekly.add_trace(go.Bar(
                         x=df_weekly["CalendarWeek"],
                         y=df_weekly["PassRate"],
                         name="Passed (OK)",
-                        marker_color="#0f766e",  # Professional Deep Teal
+                        marker_color="#0f766e",
                         text=passed_text,
                         textposition="inside",
                         insidetextanchor="middle"
@@ -338,7 +336,7 @@ if uploaded_file is not None:
                         x=df_weekly["CalendarWeek"],
                         y=df_weekly["FailRate"],
                         name="Failed (NOK)",
-                        marker_color="#e11d48",  # Professional Slate Rose
+                        marker_color="#e11d48",
                         text=failed_text,
                         textposition="inside",
                         insidetextanchor="middle"
@@ -354,7 +352,7 @@ if uploaded_file is not None:
                     fig_weekly.add_hline(
                         y=fpy_val,
                         line_dash="dash",
-                        line_color="#d97706",  # Professional Amber / Gold
+                        line_color="#d97706",
                         annotation_text=f"Overall FPY: {fpy_val:.1f}%",
                         annotation_position="top right"
                     )
@@ -375,10 +373,10 @@ if uploaded_file is not None:
             st.dataframe(style_report(df_summary, spec_limit), use_container_width=True)
 
         with tab2:
-            st.subheader("📈 Real Geometric Visualization (With Exaggeration Factor)")
+            st.subheader("📈 Real Geometric Visualization (With Exaggeration & Tolerance Zones)")
             
             if not df_summary.empty:
-                col_ctrl1, col_ctrl2 = st.columns(2)
+                col_ctrl1, col_ctrl2, col_ctrl3 = st.columns(3)
                 with col_ctrl1:
                     total_mods = len(df_summary)
                     num_to_graph = st.slider(
@@ -397,6 +395,12 @@ if uploaded_file is not None:
                         value=1.0,
                         step=0.5,
                         help="At 1.0, shows exact actual coordinates. Higher values visually amplify deviations."
+                    )
+                with col_ctrl3:
+                    show_tolerance_boxes = st.checkbox(
+                        f"Show ±{spec_limit}mm Tolerance Zones",
+                        value=True,
+                        help="Displays allowable X/Y tolerance square zones around each nominal corner vertex."
                     )
                 
                 selected_mod = st.session_state["selected_mod_target"]
@@ -430,6 +434,27 @@ if uploaded_file is not None:
                         name=f"Nominal Baseline ({b_type})",
                         line=dict(color="green", width=2, dash="dash")
                     ))
+                    
+                    if show_tolerance_boxes:
+                        corners_dict = {
+                            "FL": (nom["FL_X"], nom["FL_Y"]),
+                            "FR": (nom["FR_X"], nom["FR_Y"]),
+                            "RL": (nom["RL_X"], nom["RL_Y"]),
+                            "RR": (nom["RR_X"], nom["RR_Y"])
+                        }
+                        for c_name, (cx, cy) in corners_dict.items():
+                            t_xmin, t_xmax = cx - spec_limit, cx + spec_limit
+                            t_ymin, t_ymax = cy - spec_limit, cy + spec_limit
+                            t_box_x = [t_xmin, t_xmax, t_xmax, t_xmin, t_xmin]
+                            t_box_y = [t_ymin, t_ymin, t_ymax, t_ymax, t_ymin]
+                            fig.add_trace(go.Scatter(
+                                x=t_box_x, y=t_box_y,
+                                mode="lines",
+                                name=f"Tolerance Zone ±{spec_limit}mm ({b_type})",
+                                line=dict(color="rgba(217, 119, 6, 0.6)", width=1.5, dash="dot"),
+                                showlegend=(c_name == "FL" and b_type == present_types[0]),
+                                hovertemplate=f"<b>Tolerance Zone:</b> ±{spec_limit}mm<br><b>Corner:</b> {c_name} ({b_type})<extra></extra>"
+                            ))
                 
                 for _, row in df_to_plot.iterrows():
                     fl_x, fl_y = row["FL_X"], row["FL_Y"]
@@ -458,7 +483,7 @@ if uploaded_file is not None:
                     is_targeted = (mod_identifier == selected_mod)
 
                     if is_targeted:
-                        color = "#00e6ff"  # Bright cyan
+                        color = "#00e6ff"
                         opacity = 1.0
                         width = 4
                         label = f"⭐ {mod_identifier} [SELECTED]"
@@ -490,7 +515,7 @@ if uploaded_file is not None:
                     xaxis_title="Global X Axis [mm]",
                     yaxis_title="Global Y Axis [mm]",
                     height=700,
-                    title=f"Actual Geometry - Interactive Visualization (Exaggeration {exaggeration}x)",
+                    title=f"Actual Geometry & Tolerance Zones (Exaggeration {exaggeration}x)",
                     yaxis=dict(scaleanchor="x", scaleratio=1),
                     legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02)
                 )
