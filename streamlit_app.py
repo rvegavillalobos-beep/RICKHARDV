@@ -373,45 +373,72 @@ if uploaded_file is not None:
             st.dataframe(style_report(df_summary, spec_limit), use_container_width=True)
 
         with tab2:
-            st.subheader("📈 Real Geometric Visualization (Range Selector & Toggle)")
+            st.subheader("📈 Real Geometric Visualization (Range Selector & Shift Scroll)")
             
             if not df_summary.empty:
                 total_mods = len(df_summary)
                 
-                # Controles distribuidos en 3 columnas (usando slider de dos lados para rangos/secciones)
-                col_ctrl1, col_ctrl2, col_ctrl3 = st.columns(3)
+                # Inicializar estado para recordar el rango actual
+                if "range_start" not in st.session_state:
+                    st.session_state["range_start"] = max(0, total_mods - 10)
+                if "range_end" not in st.session_state:
+                    st.session_state["range_end"] = max(0, total_mods - 1)
+
+                # Controles distribuidos en columnas para un diseño profesional
+                col_ctrl1, col_ctrl2, col_ctrl3, col_ctrl4 = st.columns([2, 1.5, 1.5, 1])
+                
                 with col_ctrl1:
-                    default_start = max(0, total_mods - 10)
-                    default_end = max(0, total_mods - 1)
                     selected_range = st.slider(
-                        "Select Battery Range (Index):",
+                        "Rango (Inicio - Fin):",
                         min_value=0,
                         max_value=max(0, total_mods - 1),
-                        value=(default_start, default_end),
+                        value=(st.session_state["range_start"], st.session_state["range_end"]),
                         step=1,
-                        help="Select a continuous section/range of batteries chronologically (from index start to end)."
+                        key="slider_range_input",
+                        help="Ajusta libremente ambos extremos del rango."
                     )
+                    # Sincronizar cambios manuales del slider principal
+                    if selected_range != (st.session_state["range_start"], st.session_state["range_end"]):
+                        st.session_state["range_start"], st.session_state["range_end"] = selected_range
+                        st.rerun()
+
                 with col_ctrl2:
+                    current_window_size = st.session_state["range_end"] - st.session_state["range_start"]
+                    new_start = st.slider(
+                        "Desplazar Bloque (Scroll):",
+                        min_value=0,
+                        max_value=max(0, total_mods - 1 - current_window_size),
+                        value=st.session_state["range_start"],
+                        step=1,
+                        help="Mueve todo el bloque de módulos completo manteniendo fijo el tamaño de tu rango."
+                    )
+                    if new_start != st.session_state["range_start"]:
+                        st.session_state["range_start"] = new_start
+                        st.session_state["range_end"] = min(total_mods - 1, new_start + current_window_size)
+                        st.rerun()
+
+                with col_ctrl3:
                     exaggeration = st.slider(
-                        "Deviation Exaggeration Factor:",
+                        "Exageración:",
                         min_value=1.0,
                         max_value=20.0,
                         value=1.0,
                         step=0.5,
-                        help="At 1.0, shows exact actual coordinates. Higher values visually amplify deviations."
+                        help="Amplifica visualmente las desviaciones."
                     )
-                with col_ctrl3:
+
+                with col_ctrl4:
                     show_tolerance_boxes = st.checkbox(
-                        f"Show ±{spec_limit}mm Tolerance Zones",
+                        f"Zonas ±{spec_limit}mm",
                         value=True,
-                        help="Displays allowable X/Y tolerance square zones around each nominal corner vertex."
+                        help="Muestra las cajas de tolerancia."
                     )
                 
                 selected_mod = st.session_state["selected_mod_target"]
                 if selected_mod != "--- None / All ---":
                     st.info(f"🔍 **Module selected for plot focus:** `{selected_mod}` (Highlighted in bright cyan)")
 
-                start_idx, end_idx = selected_range
+                start_idx, end_idx = st.session_state["range_start"], st.session_state["range_end"]
                 df_to_plot = df_summary.iloc[start_idx : end_idx + 1].copy()
                 
                 if selected_mod != "--- None / All ---":
