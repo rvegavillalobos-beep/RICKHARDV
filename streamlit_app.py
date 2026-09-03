@@ -373,38 +373,36 @@ if uploaded_file is not None:
             st.dataframe(style_report(df_summary, spec_limit), use_container_width=True)
 
         with tab2:
-            st.subheader("📈 Real Geometric Visualization (Range Selector & Toggle)")
+            st.subheader("📈 Real Geometric Visualization")
             
             if not df_summary.empty:
                 total_mods = len(df_summary)
+                default_start = max(0, total_mods - 10)
+                default_end = max(0, total_mods - 1)
+
+                # ANCHO DE COLUMNAS AJUSTADO PARA EVITAR QUE EL TOGGLE PIERDA SU ÁREA DE CLIC
+                col_ctrl1, col_ctrl2, col_ctrl3 = st.columns([2.5, 1.5, 1.5])
                 
-                # Controles distribuidos en 3 columnas (usando slider de dos lados para rangos/secciones)
-                col_ctrl1, col_ctrl2, col_ctrl3 = st.columns(3)
                 with col_ctrl1:
-                    default_start = max(0, total_mods - 10)
-                    default_end = max(0, total_mods - 1)
                     selected_range = st.slider(
-                        "Select Battery Range (Index):",
+                        "Seleccionar Rango de Módulos (Índices):",
                         min_value=0,
                         max_value=max(0, total_mods - 1),
                         value=(default_start, default_end),
-                        step=1,
-                        help="Select a continuous section/range of batteries chronologically (from index start to end)."
+                        step=1
                     )
                 with col_ctrl2:
                     exaggeration = st.slider(
-                        "Deviation Exaggeration Factor:",
+                        "Exageración:",
                         min_value=1.0,
                         max_value=20.0,
                         value=1.0,
-                        step=0.5,
-                        help="At 1.0, shows exact actual coordinates. Higher values visually amplify deviations."
+                        step=0.5
                     )
                 with col_ctrl3:
                     show_tolerance_boxes = st.checkbox(
-                        f"Show ±{spec_limit}mm Tolerance Zones",
-                        value=True,
-                        help="Displays allowable X/Y tolerance square zones around each nominal corner vertex."
+                        f"Zonas ±{spec_limit}mm",
+                        value=True
                     )
                 
                 selected_mod = st.session_state["selected_mod_target"]
