@@ -322,7 +322,7 @@ if uploaded_file is not None:
             cal_week = first_row["CalendarWeek"]
             p_val = first_row[part_col]
 
-            # CORRECCIÓN CLAVE: Evalúa TODAS las características presentes en la corrida del módulo
+            # EVALUACIÓN GLOBAL DEL TIPO DE BATERÍA EN LA CORRIDA
             bat_type = determine_battery_type(p_val, group[feat_col])
 
             corners = {
@@ -651,7 +651,7 @@ if uploaded_file is not None:
                                     width=1.5,
                                     dash="dot",
                                 ),
-                                showlegend=(c_name == "FL"),
+                                showlegend=False,  # <-- CORRECCIÓN: Siempre visibles de forma fija
                                 hovertemplate=(
                                     f"<b>Tolerance Zone:</b> ±{spec_limit}mm"
                                     f" (Scaled {exaggeration}x)<br><b>Corner:</b>"
