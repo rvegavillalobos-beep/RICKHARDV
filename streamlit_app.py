@@ -15,24 +15,27 @@ if "selected_mod_target" not in st.session_state:
     st.session_state["selected_mod_target"] = "--- None / All ---"
 
 
-def determine_battery_type(part_id: str, feature_name: str) -> str:
+def determine_battery_type(part_id: str, feature_names) -> str:
     """
-    Determina si la batería es Type M o Type S evaluando
-    el PartID y el nombre de la Feature.
+    Determina si la batería es Type M o Type S evaluando el PartID 
+    y el conjunto completo de Features de la batería/corrida.
     """
     p_id = str(part_id).upper().strip()
-    f_name = str(feature_name).upper().strip()
+    
+    # Si recibe una lista/serie de características de la corrida, las une
+    if isinstance(feature_names, (list, set, pd.Series)):
+        f_combined = " ".join([str(f).upper().strip() for f in feature_names])
+    else:
+        f_combined = str(feature_names).upper().strip()
 
-    # Criterios para Type M
-    if "_DJ" in f_name or "_DJ" in p_id:
+    # Evaluación global para Type M (Soporta sufijos _DJ y _DI)
+    if "_DJ" in p_id or "_DJ" in f_combined or "_DI" in p_id or "_DI" in f_combined:
         return "Type M"
-    if "_M" in p_id or "-M" in p_id or "TYPE M" in p_id or "TYPEM" in p_id:
-        return "Type M"
-    if p_id.endswith("M") or p_id.endswith("_M"):
+    if "_M" in p_id or "-M" in p_id or "TYPE M" in p_id or "TYPEM" in p_id or p_id.endswith("M"):
         return "Type M"
 
-    # Criterios para Type S
-    if "_DA" in f_name or "_DA" in p_id:
+    # Evaluación para Type S
+    if "_DA" in p_id or "_DA" in f_combined:
         return "Type S"
     if "_S" in p_id or "-S" in p_id or "TYPE S" in p_id or "TYPES" in p_id:
         return "Type S"
@@ -41,48 +44,41 @@ def determine_battery_type(part_id: str, feature_name: str) -> str:
 
 
 def extract_corner_index(feature_name: str, part_id: str) -> int:
-    """
-    Mapea el nombre de la Feature al índice de esquina (1: FL, 2: FR, 3: RL, 4: RR).
-    Soporta nomenclaturas con y sin cero inicial (ej. L324 / L0324).
-    """
     f = str(feature_name).lower().strip()
     if not f:
         return 0
 
     is_type_m = determine_battery_type(part_id, feature_name) == "Type M"
 
-    # Front Left (FL) - Esquina 1 (Compartido en S y M)
-    if "l324_aa" in f or "l0324_aa" in f:
+    if "l0324_aa" in f or "l324_aa" in f:
         return 1
-
-    # Front Right (FR) - Esquina 2 (Compartido en S y M)
-    if "r301_aa" in f or "r0301_aa" in f:
+    if "r0301_aa" in f or "r301_aa" in f:
         return 2
 
-    # Rear Left (RL) - Esquina 3
     if is_type_m:
-        if "l324_dj" in f or "l0324_dj" in f:
+        if any(k in f for k in ["l0324_dj", "l324_dj", "l0324_di", "l324_di"]):
             return 3
-    else:
-        if "l324_da" in f or "l0324_da" in f:
-            return 3
-
-    # Rear Right (RR) - Esquina 4
-    if is_type_m:
-        if "r301_dj" in f or "r0301_dj" in f:
+        if any(k in f for k in ["r0301_dj", "r301_dj", "r0301_di", "r301_di"]):
             return 4
     else:
-        if "r302_da" in f or "r0302_da" in f:
+        if "l0324_da" in f or "l324_da" in f:
+            return 3
+        if "r0302_da" in f or "r302_da" in f:
             return 4
 
-    # Reglas genéricas de respaldo (fallbacks)
     if "fl" in f or "c1" in f:
         return 1
     elif "fr" in f or "c2" in f:
         return 2
     elif "rl" in f or "c3" in f:
         return 3
-    elif "rr" in f or "c4" in f:
+    elif (
+        "rr" in f
+        or "c4" in f
+        or "r302" in f
+        or "r301" in f
+        or "r0301" in f
+    ):
         return 4
 
     return 0
@@ -324,8 +320,10 @@ if uploaded_file is not None:
             first_row = group.iloc[0]
             full_dt = first_row["ParsedDate"]
             cal_week = first_row["CalendarWeek"]
-            bat_type = first_row["BatteryType"]
             p_val = first_row[part_col]
+
+            # CORRECCIÓN CLAVE: Evalúa TODAS las características presentes en la corrida del módulo
+            bat_type = determine_battery_type(p_val, group[feat_col])
 
             corners = {
                 1: (None, None),
