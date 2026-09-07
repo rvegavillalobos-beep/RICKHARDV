@@ -896,35 +896,70 @@ if uploaded_file is not None:
                 )
 
         with tab4:
-            st.subheader(
-                "🧭 Multivariable Yaw Rotation & Spatial Drift Analysis (Run 1 Only)"
-            )
+            st.subheader("🧭 Vector Drift, Conveyor Tuning & Rotation Analysis")
             st.markdown(
-                "Evaluate module angular orientation (**Yaw Angle Δθ**) against centroid position to analyze conveyor skew and rotational alignment during **Run 1**."
+                "Analyze the directional drift of module centroids and evaluate"
+                " both mechanical conveyor translation and incoming angular rotation (yaw) over time."
             )
 
-            # RESTRICT TO RUN 1 ONLY
-            df_vec = df_summary[df_summary["RunNum"] == 1].copy()
-
-            # Calculate Centroids
+            df_vec = df_summary.copy()
             df_vec["Centroid_X"] = df_vec[
                 ["FL_X", "FR_X", "RL_X", "RR_X"]
             ].mean(axis=1)
             df_vec["Centroid_Y"] = df_vec[
                 ["FL_Y", "FR_Y", "RL_Y", "RR_Y"]
             ].mean(axis=1)
+            df_vec["Vector_Magnitude"] = np.sqrt(
+                df_vec["Centroid_X"] ** 2 + df_vec["Centroid_Y"] ** 2
+            )
+            df_vec["Vector_Angle"] = np.degrees(
+                np.arctan2(df_vec["Centroid_Y"], df_vec["Centroid_X"])
+            )
 
-            # Calculate Yaw Angle (Delta Theta) from actual corner deviations
-            # Using Rear-Center to Front-Center vector orientation
-            rc_x = (df_vec["RL_X"] + df_vec["RR_X"]) / 2
-            rc_y = (df_vec["RL_Y"] + df_vec["RR_Y"]) / 2
-            fc_x = (df_vec["FL_X"] + df_vec["FR_X"]) / 2
-            fc_y = (df_vec["FL_Y"] + df_vec["FR_Y"]) / 2
-            
-            vec_dx = fc_x - rc_x
-            vec_dy = fc_y - rc_y
-            df_vec["Yaw_Delta_Deg"] = np.degrees(np.arctan2(vec_dy, vec_dx))
+            # Compute Rotation Angle (Yaw Deviation Δθ)
+            rotation_list = []
+            for _, row in df_vec.iterrows():
+                if (
+                    pd.isna(row["FL_X"])
+                    or pd.isna(row["FR_X"])
+                    or pd.isna(row["RL_X"])
+                    or pd.isna(row["RR_X"])
+                ):
+                    rotation_list.append(0.0)
+                    continue
+                nom = get_nominal_coordinates(row["BatteryType"])
+                f_nom_x = (nom["FL_X"] + nom["FR_X"]) / 2
+                f_nom_y = (nom["FL_Y"] + nom["FR_Y"]) / 2
+                r_nom_x = (nom["RL_X"] + nom["RR_X"]) / 2
+                r_nom_y = (nom["RL_Y"] + nom["RR_Y"]) / 2
+                v_nom_x = f_nom_x - r_nom_x
+                v_nom_y = f_nom_y - r_nom_y
+                angle_nom = np.degrees(np.arctan2(v_nom_y, v_nom_x))
 
+                fl_x_act = nom["FL_X"] + row["FL_X"]
+                fl_y_act = nom["FL_Y"] + row["FL_Y"]
+                fr_x_act = nom["FR_X"] + row["FR_X"]
+                fr_y_act = nom["FR_Y"] + row["FR_Y"]
+                rl_x_act = nom["RL_X"] + row["RL_X"]
+                rl_y_act = nom["RL_Y"] + row["RL_Y"]
+                rr_x_act = nom["RR_X"] + row["RR_X"]
+                rr_y_act = nom["RR_Y"] + row["RR_Y"]
+
+                f_act_x = (fl_x_act + fr_x_act) / 2
+                f_act_y = (fl_y_act + fr_y_act) / 2
+                r_act_x = (rl_x_act + rr_x_act) / 2
+                r_act_y = (rl_y_act + rr_y_act) / 2
+                v_act_x = f_act_x - r_act_x
+                v_act_y = f_act_y - r_act_y
+                angle_act = np.degrees(np.arctan2(v_act_y, v_act_x))
+
+                diff_angle = angle_act - angle_nom
+                diff_angle = (diff_angle + 180) % 360 - 180
+                rotation_list.append(diff_angle)
+
+            df_vec["Rotation_Angle"] = rotation_list
+
+            # Convert calendar week to numeric value for proper continuous coloring
             df_vec["WeekNum"] = (
                 df_vec["CalendarWeek"]
                 .str.replace("CW", "", regex=False)
@@ -935,99 +970,166 @@ if uploaded_file is not None:
 
             with col_v1:
                 st.markdown(
-                    "##### 🎯 Spatial Drift vs. Module Yaw Rotation (Δθ)"
+                    "##### 📍 Centroid Trajectory (Global X-Y Drift)"
                 )
-                fig_bubble = go.Figure()
+                fig_drift = go.Figure()
 
-                fig_bubble.add_hline(
-                    y=0, line_dash="dash", line_color="rgba(150, 150, 150, 0.6)"
-                )
-                fig_bubble.add_vline(
-                    x=0, line_dash="dash", line_color="rgba(150, 150, 150, 0.6)"
+                fig_drift.add_trace(
+                    go.Scatter(
+                        x=[0],
+                        y=[0],
+                        mode="markers+text",
+                        marker=dict(color="green", size=12, symbol="cross"),
+                        text=["Ideal (0,0)"],
+                        textposition="top center",
+                        name="Nominal Center",
+                    )
                 )
 
-                fig_bubble.add_trace(
+                fig_drift.add_trace(
                     go.Scatter(
                         x=df_vec["Centroid_X"],
                         y=df_vec["Centroid_Y"],
-                        mode="markers",
+                        mode="lines+markers",
                         marker=dict(
-                            size=10,
-                            color=df_vec["Yaw_Delta_Deg"],
-                            colorscale="RdBu",
-                            cmin=-0.5,
-                            cmax=0.5,
+                            size=9,
+                            color=df_vec["WeekNum"],
+                            colorscale="Viridis",
                             showscale=True,
                             colorbar=dict(
-                                title="Yaw Δθ [°]", len=0.8, x=1.12
+                                title="Week (CW)", len=0.8, x=1.15
                             ),
-                            line=dict(width=1, color="black"),
                         ),
+                        line=dict(color="rgba(100,100,100,0.5)", width=1.5),
                         text=df_vec["CalendarWeek"]
                         + " | "
                         + df_vec["PartID"]
-                        + " | Yaw: "
-                        + df_vec["Yaw_Delta_Deg"].round(2).astype(str) + "°",
+                        + " | Run "
+                        + df_vec["RunNum"].astype(str),
                         hovertemplate=(
-                            "<b>PartID/Week:</b> %{text}<br><b>Centroid X:</b>"
+                            "<b>PartID:</b> %{text}<br><b>Week:"
+                            "</b> CW%{marker.color}<br><b>Centroid X:</b>"
                             " %{x:.2f} mm<br><b>Centroid Y:</b> %{y:.2f}"
-                            " mm<br><b>Yaw Rotation Δθ:</b> %{marker.color:.2f}°<extra></extra>"
+                            " mm<extra></extra>"
                         ),
-                        name="Modules",
+                        name="Centroid Path",
                     )
                 )
 
-                fig_bubble.update_layout(
+                fig_drift.add_annotation(
+                    x=0,
+                    y=2.8,
+                    text="▲ +Y (Right)",
+                    showarrow=False,
+                    font=dict(size=10, color="#94a3b8"),
+                )
+                fig_drift.add_annotation(
+                    x=0,
+                    y=-2.8,
+                    text="▼ -Y (Left)",
+                    showarrow=False,
+                    font=dict(size=10, color="#94a3b8"),
+                )
+                fig_drift.add_annotation(
+                    x=4.2,
+                    y=0,
+                    text="+X (Back) ▶",
+                    showarrow=False,
+                    font=dict(size=10, color="#94a3b8"),
+                )
+                fig_drift.add_annotation(
+                    x=-4.2,
+                    y=0,
+                    text="◀ -X (Front)",
+                    showarrow=False,
+                    font=dict(size=10, color="#94a3b8"),
+                )
+
+                fig_drift.update_layout(
                     xaxis_title="Mean X Deviation [mm]",
                     yaxis_title="Mean Y Deviation [mm]",
                     height=500,
-                    margin=dict(l=20, r=110, t=30, b=20),
+                    margin=dict(l=30, r=130, t=50, b=30),
                     yaxis=dict(scaleanchor="x", scaleratio=1),
+                    legend=dict(
+                        orientation="h",
+                        yanchor="bottom",
+                        y=1.08,
+                        xanchor="left",
+                        x=0,
+                    ),
                 )
-                st.plotly_chart(fig_bubble, use_container_width=True)
+                st.plotly_chart(fig_drift, use_container_width=True)
 
             with col_v2:
                 st.markdown(
-                    "##### 📈 Incoming Module Yaw Angle (Δθ) Trend by Week"
+                    "##### 📉 Error Vector Magnitude by Week"
                 )
-                fig_yaw = go.Figure()
+                weekly_vector = (
+                    df_vec.groupby("CalendarWeek")
+                    .agg(
+                        Mean_Magnitude=("Vector_Magnitude", "mean"),
+                        Max_Magnitude=("Vector_Magnitude", "max"),
+                        Total_Modules=("PartID", "count"),
+                    )
+                    .reset_index()
+                )
 
-                fig_yaw.add_trace(
-                    go.Box(
-                        x=df_vec["CalendarWeek"],
-                        y=df_vec["Yaw_Delta_Deg"],
-                        name="Yaw Distribution [°]",
+                fig_mag = go.Figure()
+                fig_mag.add_trace(
+                    go.Bar(
+                        x=weekly_vector["CalendarWeek"],
+                        y=weekly_vector["Mean_Magnitude"],
+                        name="Mean Drift Magnitude [mm]",
                         marker_color="#0f766e",
-                        boxmean=True,
                     )
                 )
-
-                fig_yaw.add_hline(
-                    y=0.3,
-                    line_dash="dash",
-                    line_color="#e11d48",
-                    annotation_text="Upper Limit (+0.3°)",
-                    annotation_position="top right",
-                )
-                fig_yaw.add_hline(
-                    y=-0.3,
-                    line_dash="dash",
-                    line_color="#e11d48",
-                    annotation_text="Lower Limit (-0.3°)",
-                    annotation_position="bottom right",
-                )
-
-                fig_yaw.update_layout(
-                    yaxis=dict(title="Yaw Angle Deviation Δθ [°]"),
-                    xaxis=dict(title="Calendar Week"),
+                fig_mag.update_layout(
+                    yaxis=dict(title="Mean Magnitude R (mm)"),
+                    xaxis=dict(title="Week"),
                     height=500,
                     margin=dict(l=20, r=20, t=30, b=20),
                 )
-                st.plotly_chart(fig_yaw, use_container_width=True)
+                st.plotly_chart(fig_mag, use_container_width=True)
+
+            st.markdown("---")
+            st.markdown("##### 🔄 Incoming Module Rotation (Yaw Angle Δθ) Trend")
+            
+            fig_rot = go.Figure()
+            fig_rot.add_trace(
+                go.Scatter(
+                    x=df_vec["Date"],
+                    y=df_vec["Rotation_Angle"],
+                    mode="markers+lines",
+                    name="Yaw Rotation [°]",
+                    marker=dict(
+                        size=8,
+                        color=df_vec["Rotation_Angle"].abs(),
+                        colorscale="Tealgrn",
+                        showscale=True,
+                        colorbar=dict(title="|Rotation| [°]", len=0.8, x=1.02),
+                    ),
+                    line=dict(color="#0f766e", width=1.5),
+                    hovertemplate=(
+                        "<b>PartID:</b> %{text}<br><b>Date:</b> %{x}<br><b>Rotation Angle:</b> %{y:.2f}°<extra></extra>"
+                    ),
+                    text=df_vec["PartID"] + " | Run " + df_vec["RunNum"].astype(str),
+                )
+            )
+            fig_rot.add_hline(
+                y=0, line_dash="dash", line_color="#94a3b8", annotation_text="Perfect Alignment (0°)"
+            )
+            fig_rot.update_layout(
+                xaxis_title="Date & Time",
+                yaxis_title="Rotation Angle Δθ [°]",
+                height=400,
+                margin=dict(l=20, r=80, t=30, b=20),
+            )
+            st.plotly_chart(fig_rot, use_container_width=True)
 
             st.markdown("---")
             st.markdown(
-                "##### 📋 Rotation & Vector Summary Table (Run 1 Only)"
+                "##### 📋 Vector & Rotation Summary Table"
             )
             df_vec_display = df_vec[[
                 "Date",
@@ -1036,7 +1138,8 @@ if uploaded_file is not None:
                 "BatteryType",
                 "Centroid_X",
                 "Centroid_Y",
-                "Yaw_Delta_Deg",
+                "Vector_Magnitude",
+                "Rotation_Angle",
                 "Status",
             ]].copy()
             df_vec_display.columns = [
@@ -1046,7 +1149,8 @@ if uploaded_file is not None:
                 "Type",
                 "Centroid X [mm]",
                 "Centroid Y [mm]",
-                "Yaw Angle Δθ [°]",
+                "Magnitude R [mm]",
+                "Yaw Rotation [°]",
                 "Status",
             ]
             df_vec_display["Centroid X [mm]"] = df_vec_display[
@@ -1055,8 +1159,11 @@ if uploaded_file is not None:
             df_vec_display["Centroid Y [mm]"] = df_vec_display[
                 "Centroid Y [mm]"
             ].round(2)
-            df_vec_display["Yaw Angle Δθ [°]"] = df_vec_display[
-                "Yaw Angle Δθ [°]"
+            df_vec_display["Magnitude R [mm]"] = df_vec_display[
+                "Magnitude R [mm]"
+            ].round(2)
+            df_vec_display["Yaw Rotation [°]"] = df_vec_display[
+                "Yaw Rotation [°]"
             ].round(2)
             st.dataframe(
                 df_vec_display, hide_index=True, use_container_width=True
@@ -1084,7 +1191,7 @@ if uploaded_file is not None:
                 )
             if "df_vec_display" in locals():
                 df_vec_display.to_excel(
-                    writer, sheet_name="Yaw_Rotation_Analysis", index=False
+                    writer, sheet_name="Vector_Drift_Analysis", index=False
                 )
         processed_data = output.getvalue()
 
