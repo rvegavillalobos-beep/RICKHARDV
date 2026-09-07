@@ -818,316 +818,148 @@ if uploaded_file is not None:
                     (rl_x_act, rl_y_act),
                 )
 
-                delta_diags = abs(
-                    (d1_act - d2_act) - (d1_nom - d2_nom)
-                )
-                diff_ancho = (w_top_act - w_top_nom) - (
-                    w_bot_act - w_bot_nom
-                )
-                diff_largo = (l_left_act - l_left_nom) - (
-                    l_right_act - l_right_nom
-                )
+                d1_dev = abs(d1_act - d1_nom)
+                d2_dev = abs(d2_act - d2_nom)
+                delta_diags = abs(d1_act - d2_act)
+                diff_ancho = abs(w_top_act - w_bot_act)
+                diff_largo = abs(l_left_act - l_right_act)
                 angle_fl_dev = angle_fl_act - angle_fl_nom
 
                 status, detail = evaluate_deformation(
-                    delta_diags,
-                    angle_fl_dev,
-                    diff_ancho,
-                    diff_largo,
-                    max_diag_tol,
+                    delta_diags, angle_fl_dev, diff_ancho, diff_largo, max_diag_tol
                 )
 
                 squareness_records.append({
                     "Date": row["Date"],
+                    "CalendarWeek": row["CalendarWeek"],
                     "PartID": row["PartID"],
-                    "RunNum": row["RunNum"],
                     "BatteryType": row["BatteryType"],
-                    "Diag 1 [mm]": round(d1_act, 2),
-                    "Diag 2 [mm]": round(d2_act, 2),
+                    "RunNum": row["RunNum"],
+                    "Nominal Diag [mm]": round(d1_nom, 2),
+                    "Actual Diag [mm]": round(d1_act, 2),
                     "Delta Diag [mm]": round(delta_diags, 2),
-                    "Width Delta [mm]": round(diff_ancho, 2),
-                    "Length Delta [mm]": round(diff_largo, 2),
-                    "FL Angular Dev [°]": round(angle_fl_dev, 2),
+                    "Angle FL [°]": round(angle_fl_act, 2),
+                    "Angle Dev [°]": round(angle_fl_dev, 2),
                     "Squareness Status": status,
-                    "Root Cause Details": detail,
+                    "Deformation Mode": detail,
                 })
 
             df_squareness = pd.DataFrame(squareness_records)
+            st.markdown(
+                "##### 🔍 Geometric Deformation & Squareness Evaluation (Diagonals & Angles)"
+            )
             if not df_squareness.empty:
-                st.markdown(
-                    "💡 **Selection Tip:** **Click on any row in the"
-                    " table** to select and automatically highlight it in"
-                    " bright cyan in the *Interactive Plot (Tab 2)*."
-                )
-
-                if (
-                    st.session_state["selected_mod_target"]
-                    != "--- None / All ---"
-                ):
-                    if st.button("🔄 Clear Current Selection"):
-                        st.session_state["selected_mod_target"] = (
-                            "--- None / All ---"
-                        )
-                        st.rerun()
-
-                event = st.dataframe(
+                st.dataframe(
                     style_squareness_report(df_squareness, max_diag_tol),
                     use_container_width=True,
-                    selection_mode="single-row",
-                    on_select="rerun",
-                    key="sq_table_selection",
                 )
-
-                selected_rows = event.selection.rows
-                if selected_rows:
-                    row_idx = selected_rows[0]
-                    r_sel = df_squareness.iloc[row_idx]
-                    new_target = f"{r_sel['PartID']} | Run {r_sel['RunNum']} | {str(r_sel['Date'])[:10]}"
-                    if (
-                        new_target
-                        != st.session_state["selected_mod_target"]
-                    ):
-                        st.session_state["selected_mod_target"] = new_target
-                        st.rerun()
             else:
-                st.info(
-                    "Not enough complete 4-corner data available to calculate"
-                    " squareness."
-                )
+                st.info("No squareness data available.")
 
         with tab4:
-            st.subheader("🧭 Vector Drift & Conveyor Tuning Analysis")
+            st.subheader(
+                "🧭 Vector Drift & Conveyor Tuning Analysis"
+            )
             st.markdown(
-                "Analyze the directional drift of module centroids and evaluate"
-                " the impact of mechanical conveyor adjustments over time."
+                "Análisis sistemático de deriva direccional por esquina (X, Y) y recomendaciones de ajuste mecánico para guías de transportador y rodillos."
             )
 
-            df_vec = df_summary.copy()
-            df_vec["Centroid_X"] = df_vec[
-                ["FL_X", "FR_X", "RL_X", "RR_X"]
-            ].mean(axis=1)
-            df_vec["Centroid_Y"] = df_vec[
-                ["FL_Y", "FR_Y", "RL_Y", "RR_Y"]
-            ].mean(axis=1)
-            df_vec["Vector_Magnitude"] = np.sqrt(
-                df_vec["Centroid_X"] ** 2 + df_vec["Centroid_Y"] ** 2
-            )
-            df_vec["Vector_Angle"] = np.degrees(
-                np.arctan2(df_vec["Centroid_Y"], df_vec["Centroid_X"])
-            )
+            if not df_summary.empty:
+                # Calcular la deriva media (Bias) por esquina para Run 1 y general
+                df_drift_source = df_summary[df_summary["RunNum"] == 1] if not df_summary[df_summary["RunNum"] == 1].empty else df_summary
 
-            # Convert calendar week to numeric value for proper continuous coloring
-            df_vec["WeekNum"] = (
-                df_vec["CalendarWeek"]
-                .str.replace("CW", "", regex=False)
-                .astype(int)
-            )
+                corners_list = ["FL", "FR", "RL", "RR"]
+                drift_summary = []
 
-            col_v1, col_v2 = st.columns(2)
+                for c in corners_list:
+                    x_col = f"{c}_X"
+                    y_col = f"{c}_Y"
+                    if x_col in df_drift_source.columns and y_col in df_drift_source.columns:
+                        mean_x = df_drift_source[x_col].mean()
+                        mean_y = df_drift_source[y_col].mean()
+                        mag = np.sqrt(mean_x**2 + mean_y**2)
+                        angle = np.degrees(np.arctan2(mean_y, mean_x))
+                        
+                        drift_summary.append({
+                            "Corner": c,
+                            "Mean X Bias [mm]": round(mean_x, 3),
+                            "Mean Y Bias [mm]": round(mean_y, 3),
+                            "Drift Magnitude [mm]": round(mag, 3),
+                            "Drift Angle [°]": round(angle, 1),
+                        })
 
-            with col_v1:
-                st.markdown(
-                    "##### 📍 Centroid Trajectory (Global X-Y Drift)"
-                )
-                fig_drift = go.Figure()
+                df_drift_table = pd.DataFrame(drift_summary)
 
-                fig_drift.add_trace(
-                    go.Scatter(
-                        x=[0],
-                        y=[0],
-                        mode="markers+text",
-                        marker=dict(color="green", size=12, symbol="cross"),
-                        text=["Ideal (0,0)"],
-                        textposition="top center",
-                        name="Nominal Center",
-                    )
-                )
+                col_d1, col_d2 = st.columns([1.5, 2.5])
+                with col_d1:
+                    st.markdown("##### 📍 Systematic Vector Drift per Corner (Run 1)")
+                    st.dataframe(df_drift_table, hide_index=True, use_container_width=True)
 
-                fig_drift.add_trace(
-                    go.Scatter(
-                        x=df_vec["Centroid_X"],
-                        y=df_vec["Centroid_Y"],
+                with col_d2:
+                    st.markdown("##### 🛠️ Recommended Mechanical Conveyor Adjustments")
+                    
+                    # Lógica experta para sugerir ajustes mecánicos basados en los vectores medios
+                    fl_x = df_drift_table.loc[df_drift_table["Corner"] == "FL", "Mean X Bias [mm]"].values[0] if not df_drift_table.empty else 0
+                    fr_x = df_drift_table.loc[df_drift_table["Corner"] == "FR", "Mean X Bias [mm]"].values[0] if not df_drift_table.empty else 0
+                    rl_y = df_drift_table.loc[df_drift_table["Corner"] == "RL", "Mean Y Bias [mm]"].values[0] if not df_drift_table.empty else 0
+                    rr_y = df_drift_table.loc[df_drift_table["Corner"] == "RR", "Mean Y Bias [mm]"].values[0] if not df_drift_table.empty else 0
+                    
+                    recommendations = []
+                    
+                    if abs(fl_x) > 0.3 or abs(fr_x) > 0.3:
+                        avg_long_shift = (fl_x + fr_x) / 2
+                        direction = "adelante (+X)" if avg_long_shift > 0 else "atrás (-X)"
+                        recommendations.append(f"• **Posicionamiento longitudinal:** Los módulos muestran un sesgo longitudinal promedio de `{avg_long_shift:+.2f} mm` hacia {direction}. Se recomienda ajustar el sensor de paro (stopper) en la estación de transferencia.")
+                    else:
+                        recommendations.append("• **Posicionamiento longitudinal:** Alineación de paros dentro del rango óptimo.")
+
+                    if abs(rl_y - rr_y) > 0.4:
+                        recommendations.append("• **Skew / Desalineación Angular de Rodillos:** Se detecta un diferencial transversal entre RL y RR (`{abs(rl_y - rr_y):.2f} mm`), indicando que el módulo entra ladeado. Ajustar el torque y paralelismo de los rodillos guía de entrada.")
+                    else:
+                        recommendations.append("• **Skew / Paralelismo:** Sin signos críticos de entrada ladeada en los rodillos.")
+
+                    avg_lat_bias = (df_drift_table["Mean Y Bias [mm]"]).mean()
+                    if abs(avg_lat_bias) > 0.3:
+                        lat_dir = "izquierda (-Y)" if avg_lat_bias < 0 else "derecha (+Y)"
+                        recommendations.append(f"• **Guías Laterales del Conveyor:** Deriva lateral sistemática hacia {lat_dir} (`{avg_lat_bias:+.2f} mm`). Intercalar lainas (shims) de ajuste en la guía lateral correspondiente.")
+                    else:
+                        recommendations.append("• **Guías Laterales:** Centrado transversal correcto en las pistas de rodillos.")
+
+                    for rec in recommendations:
+                        st.markdown(rec)
+
+                st.markdown("---")
+                st.markdown("##### 📈 Quiver Plot / Vector Drift Trend Over Calendar Weeks")
+                
+                # Gráfica de tendencias de deriva por semana
+                if "CalendarWeek" in df_summary.columns:
+                    weekly_drift = df_summary.groupby("CalendarWeek")[["FL_X", "FL_Y", "FR_X", "FR_Y"]].mean().reset_index()
+                    
+                    fig_drift = go.Figure()
+                    fig_drift.add_trace(go.Scatter(
+                        x=weekly_drift["CalendarWeek"],
+                        y=weekly_drift["FL_X"],
                         mode="lines+markers",
-                        marker=dict(
-                            size=9,
-                            color=df_vec["WeekNum"],
-                            colorscale="Viridis",
-                            showscale=True,
-                            colorbar=dict(
-                                title="Week (CW)", len=0.8, x=1.15
-                            ),  # Separated colorbar to prevent overlap
-                        ),
-                        line=dict(color="rgba(100,100,100,0.5)", width=1.5),
-                        text=df_vec["CalendarWeek"]
-                        + " | "
-                        + df_vec["PartID"]
-                        + " | Run "
-                        + df_vec["RunNum"].astype(str),
-                        hovertemplate=(
-                            "<b>PartID:</b> %{text}<br><b>Week:"
-                            "</b> CW%{marker.color}<br><b>Centroid X:</b>"
-                            " %{x:.2f} mm<br><b>Centroid Y:</b> %{y:.2f}"
-                            " mm<extra></extra>"
-                        ),
-                        name="Centroid Path",
+                        name="FL X Deviation Mean",
+                        line=dict(color="#0f766e", width=2)
+                    ))
+                    fig_drift.add_trace(go.Scatter(
+                        x=weekly_drift["CalendarWeek"],
+                        y=weekly_drift["FR_X"],
+                        mode="lines+markers",
+                        name="FR X Deviation Mean",
+                        line=dict(color="#d97706", width=2)
+                    ))
+                    fig_drift.update_layout(
+                        xaxis_title="Calendar Week",
+                        yaxis_title="Mean Deviation [mm]",
+                        height=350,
+                        margin=dict(l=20, r=20, t=30, b=20),
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                     )
-                )
-
-                # Directional references based on spatial orientation (-X Front, +X Back, -Y Left, +Y Right)
-                fig_drift.add_annotation(
-                    x=0,
-                    y=2.8,
-                    text="▲ +Y (Right)",
-                    showarrow=False,
-                    font=dict(size=10, color="#94a3b8"),
-                )
-                fig_drift.add_annotation(
-                    x=0,
-                    y=-2.8,
-                    text="▼ -Y (Left)",
-                    showarrow=False,
-                    font=dict(size=10, color="#94a3b8"),
-                )
-                fig_drift.add_annotation(
-                    x=4.2,
-                    y=0,
-                    text="+X (Back) ▶",
-                    showarrow=False,
-                    font=dict(size=10, color="#94a3b8"),
-                )
-                fig_drift.add_annotation(
-                    x=-4.2,
-                    y=0,
-                    text="◀ -X (Front)",
-                    showarrow=False,
-                    font=dict(size=10, color="#94a3b8"),
-                )
-
-                fig_drift.update_layout(
-                    xaxis_title="Mean X Deviation [mm]",
-                    yaxis_title="Mean Y Deviation [mm]",
-                    height=500,
-                    margin=dict(
-                        l=30, r=130, t=50, b=30
-                    ),  # Expanded right margin for colorbar
-                    yaxis=dict(scaleanchor="x", scaleratio=1),
-                    legend=dict(
-                        orientation="h",
-                        yanchor="bottom",
-                        y=1.08,
-                        xanchor="left",
-                        x=0,
-                    ),  # Moved legend to top-left to avoid top-right clash
-                )
-                st.plotly_chart(fig_drift, use_container_width=True)
-
-            with col_v2:
-                st.markdown(
-                    "##### 📉 Error Vector Magnitude by Week"
-                )
-                weekly_vector = (
-                    df_vec.groupby("CalendarWeek")
-                    .agg(
-                        Mean_Magnitude=("Vector_Magnitude", "mean"),
-                        Max_Magnitude=("Vector_Magnitude", "max"),
-                        Total_Modules=("PartID", "count"),
-                    )
-                    .reset_index()
-                )
-
-                fig_mag = go.Figure()
-                fig_mag.add_trace(
-                    go.Bar(
-                        x=weekly_vector["CalendarWeek"],
-                        y=weekly_vector["Mean_Magnitude"],
-                        name="Mean Drift Magnitude [mm]",
-                        marker_color="#0f766e",
-                    )
-                )
-                fig_mag.update_layout(
-                    yaxis=dict(title="Mean Magnitude R (mm)"),
-                    xaxis=dict(title="Week"),
-                    height=500,
-                    margin=dict(l=20, r=20, t=30, b=20),
-                )
-                st.plotly_chart(fig_mag, use_container_width=True)
-
-            st.markdown("---")
-            st.markdown(
-                "##### 📋 Vector Summary by Module and Adjustment Trend"
-            )
-            df_vec_display = df_vec[[
-                "Date",
-                "CalendarWeek",
-                "PartID",
-                "BatteryType",
-                "Centroid_X",
-                "Centroid_Y",
-                "Vector_Magnitude",
-                "Vector_Angle",
-                "Status",
-            ]].copy()
-            df_vec_display.columns = [
-                "Date",
-                "Week",
-                "Part ID",
-                "Type",
-                "Centroid X [mm]",
-                "Centroid Y [mm]",
-                "Magnitude R [mm]",
-                "Angle [°]",
-                "Status",
-            ]
-            df_vec_display["Centroid X [mm]"] = df_vec_display[
-                "Centroid X [mm]"
-            ].round(2)
-            df_vec_display["Centroid Y [mm]"] = df_vec_display[
-                "Centroid Y [mm]"
-            ].round(2)
-            df_vec_display["Magnitude R [mm]"] = df_vec_display[
-                "Magnitude R [mm]"
-            ].round(2)
-            df_vec_display["Angle [°]"] = df_vec_display["Angle [°]"].round(
-                2
-            )
-            st.dataframe(
-                df_vec_display, hide_index=True, use_container_width=True
-            )
-
-        st.markdown("---")
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            df_summary.to_excel(
-                writer, sheet_name="Module_Summary_Report", index=False
-            )
-            if "df_quality_summary" in locals():
-                df_quality_summary.to_excel(
-                    writer,
-                    sheet_name="First_Run_Quality_Summary",
-                    index=False,
-                )
-            if "df_weekly" in locals():
-                df_weekly.to_excel(
-                    writer, sheet_name="Weekly_FPY_Trend", index=False
-                )
-            if "df_squareness" in locals() and not df_squareness.empty:
-                df_squareness.to_excel(
-                    writer, sheet_name="Squareness_Analysis", index=False
-                )
-            if "df_vec_display" in locals():
-                df_vec_display.to_excel(
-                    writer, sheet_name="Vector_Drift_Analysis", index=False
-                )
-        processed_data = output.getvalue()
-
-        st.download_button(
-            label="📥 Download Complete Excel Report",
-            data=processed_data,
-            file_name="Quality_Analysis_Report.xlsx",
-            mime=(
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            ),
-        )
+                    st.plotly_chart(fig_drift, use_container_width=True)
+            else:
+                st.warning("No data available for vector drift analysis.")
 
     except Exception as e:
-        st.error(f"An error occurred while processing the file. Detail: {e}")
+        st.error(f"Error processing file: {e}")
