@@ -262,10 +262,11 @@ if uploaded_file is not None:
                 "OutOfSpecCount", "Status"]
         df_summary = df_summary[cols]
 
-        tab1, tab2, tab3 = st.tabs([
+        tab1, tab2, tab3, tab4 = st.tabs([
             "📊 General Summary & FPY", 
             "📈 Interactive Geometric Plot", 
-            "📐 Squareness Analysis"
+            "📐 Squareness Analysis",
+            "🧭 Vector Drift & Conveyor Tuning"
         ])
 
         with tab1:
@@ -482,7 +483,7 @@ if uploaded_file is not None:
                     mod_x = [act_rl_x, act_fl_x, act_fr_x, act_rr_x, act_rl_x]
                     mod_y = [act_rl_y, act_fl_y, act_fr_y, act_rr_y, act_rl_y]
                     
-                    mod_identifier = f"{row['PartID']} | Run {row['RunNum']} | {str(r['Date'])[:10]}" if 'r' in locals() and pd.notna(row['Date']) else f"{row['PartID']} | Run {row['RunNum']} | {str(row['Date'])[:10]}"
+                    mod_identifier = f"{row['PartID']} | Run {row['RunNum']} | {str(row['Date'])[:10]}"
                     is_targeted = (mod_identifier == selected_mod)
 
                     if is_targeted:
@@ -618,6 +619,87 @@ if uploaded_file is not None:
             else:
                 st.info("Not enough complete 4-corner data available to calculate squareness.")
 
+        with tab4:
+            st.subheader("🧭 Vector Drift & Conveyor Tuning Analysis")
+            st.markdown("Analiza la deriva direccional del centroide de los módulos y evalúa el impacto de los ajustes mecánicos en el conveyor a lo largo del tiempo.")
+            
+            df_vec = df_summary.copy()
+            df_vec["Centroid_X"] = df_vec[["FL_X", "FR_X", "RL_X", "RR_X"]].mean(axis=1)
+            df_vec["Centroid_Y"] = df_vec[["FL_Y", "FR_Y", "RL_Y", "RR_Y"]].mean(axis=1)
+            df_vec["Vector_Magnitude"] = np.sqrt(df_vec["Centroid_X"]**2 + df_vec["Centroid_Y"]**2)
+            df_vec["Vector_Angle"] = np.degrees(np.arctan2(df_vec["Centroid_Y"], df_vec["Centroid_X"]))
+            
+            col_v1, col_v2 = st.columns(2)
+            
+            with col_v1:
+                st.markdown("##### 📍 Trayectoria del Centroide (Deriva Global X-Y)")
+                fig_drift = go.Figure()
+                
+                fig_drift.add_trace(go.Scatter(
+                    x=[0], y=[0], mode="markers+text",
+                    marker=dict(color="green", size=12, symbol="cross"),
+                    text=["Ideal (0,0)"], textposition="top center",
+                    name="Nominal Center"
+                ))
+                
+                fig_drift.add_trace(go.Scatter(
+                    x=df_vec["Centroid_X"], y=df_vec["Centroid_Y"],
+                    mode="lines+markers",
+                    marker=dict(
+                        size=8,
+                        color=df_vec["Date"].astype(int),
+                        colorscale="Viridis",
+                        showscale=True,
+                        colorbar=dict(title="Tiempo")
+                    ),
+                    line=dict(color="rgba(100,100,100,0.5)", width=1.5),
+                    text=df_vec["CalendarWeek"] + " | " + df_vec["PartID"],
+                    hovertemplate="<b>PartID:</b> %{text}<br><b>Centroid X:</b> %{x:.2f} mm<br><b>Centroid Y:</b> %{y:.2f} mm<extra></extra>",
+                    name="Centroid Path"
+                ))
+                
+                fig_drift.update_layout(
+                    xaxis_title="Desviación X Promedio [mm]",
+                    yaxis_title="Desviación Y Promedio [mm]",
+                    height=450,
+                    margin=dict(l=20, r=20, t=30, b=20),
+                    yaxis=dict(scaleanchor="x", scaleratio=1)
+                )
+                st.plotly_chart(fig_drift, use_container_width=True)
+                
+            with col_v2:
+                st.markdown("##### 📉 Magnitud del Vector de Error por Semana")
+                weekly_vector = df_vec.groupby("CalendarWeek").agg(
+                    Mean_Magnitude=("Vector_Magnitude", "mean"),
+                    Max_Magnitude=("Vector_Magnitude", "max"),
+                    Total_Modules=("PartID", "count")
+                ).reset_index()
+                
+                fig_mag = go.Figure()
+                fig_mag.add_trace(go.Bar(
+                    x=weekly_vector["CalendarWeek"],
+                    y=weekly_vector["Mean_Magnitude"],
+                    name="Magnitud Promedio de Deriva [mm]",
+                    marker_color="#0f766e"
+                ))
+                fig_mag.update_layout(
+                    yaxis=dict(title="Magnitud R Promedio (mm)"),
+                    xaxis=dict(title="Semana"),
+                    height=450,
+                    margin=dict(l=20, r=20, t=30, b=20)
+                )
+                st.plotly_chart(fig_mag, use_container_width=True)
+                
+            st.markdown("---")
+            st.markdown("##### 📋 Resumen Vectorial por Módulo y Tendencia de Ajuste")
+            df_vec_display = df_vec[["Date", "CalendarWeek", "PartID", "BatteryType", "Centroid_X", "Centroid_Y", "Vector_Magnitude", "Vector_Angle", "Status"]].copy()
+            df_vec_display.columns = ["Fecha", "Semana", "Part ID", "Tipo", "Centroide X [mm]", "Centroide Y [mm]", "Magnitud R [mm]", "Ángulo [°]", "Estado"]
+            df_vec_display["Centroide X [mm]"] = df_vec_display["Centroide X [mm]"].round(2)
+            df_vec_display["Centroide Y [mm]"] = df_vec_display["Centroide Y [mm]"].round(2)
+            df_vec_display["Magnitud R [mm]"] = df_vec_display["Magnitud R [mm]"].round(2)
+            df_vec_display["Ángulo [°]"] = df_vec_display["Ángulo [°]"].round(2)
+            st.dataframe(df_vec_display, hide_index=True, use_container_width=True)
+
         st.markdown("---")
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
@@ -628,6 +710,8 @@ if uploaded_file is not None:
                 df_weekly.to_excel(writer, sheet_name="Weekly_FPY_Trend", index=False)
             if 'df_squareness' in locals() and not df_squareness.empty:
                 df_squareness.to_excel(writer, sheet_name="Squareness_Analysis", index=False)
+            if 'df_vec_display' in locals():
+                df_vec_display.to_excel(writer, sheet_name="Vector_Drift_Analysis", index=False)
         processed_data = output.getvalue()
 
         st.download_button(
