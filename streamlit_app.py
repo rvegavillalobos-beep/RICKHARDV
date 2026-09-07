@@ -16,60 +16,73 @@ if "selected_mod_target" not in st.session_state:
 
 
 def determine_battery_type(part_id: str, feature_name: str) -> str:
+    """
+    Determina si la batería es Type M o Type S evaluando
+    el PartID y el nombre de la Feature.
+    """
     p_id = str(part_id).upper().strip()
     f_name = str(feature_name).upper().strip()
 
-    if "_DJ" in p_id or "_DJ" in f_name:
+    # Criterios para Type M
+    if "_DJ" in f_name or "_DJ" in p_id:
         return "Type M"
     if "_M" in p_id or "-M" in p_id or "TYPE M" in p_id or "TYPEM" in p_id:
         return "Type M"
     if p_id.endswith("M") or p_id.endswith("_M"):
         return "Type M"
 
-    if "_DA" in p_id or "_DA" in f_name:
+    # Criterios para Type S
+    if "_DA" in f_name or "_DA" in p_id:
         return "Type S"
     if "_S" in p_id or "-S" in p_id or "TYPE S" in p_id or "TYPES" in p_id:
         return "Type S"
 
-    return "Type S"
+    return "Type S"  # Valor por defecto
 
 
 def extract_corner_index(feature_name: str, part_id: str) -> int:
+    """
+    Mapea el nombre de la Feature al índice de esquina (1: FL, 2: FR, 3: RL, 4: RR).
+    Soporta nomenclaturas con y sin cero inicial (ej. L324 / L0324).
+    """
     f = str(feature_name).lower().strip()
     if not f:
         return 0
 
     is_type_m = determine_battery_type(part_id, feature_name) == "Type M"
 
-    if "72_l0324_aa" in f:
+    # Front Left (FL) - Esquina 1 (Compartido en S y M)
+    if "l324_aa" in f or "l0324_aa" in f:
         return 1
-    if "72_r0301_aa" in f:
+
+    # Front Right (FR) - Esquina 2 (Compartido en S y M)
+    if "r301_aa" in f or "r0301_aa" in f:
         return 2
 
+    # Rear Left (RL) - Esquina 3
     if is_type_m:
-        if "72_l0324_dj" in f:
+        if "l324_dj" in f or "l0324_dj" in f:
             return 3
-        if "72_r0301_dj" in f:
+    else:
+        if "l324_da" in f or "l0324_da" in f:
+            return 3
+
+    # Rear Right (RR) - Esquina 4
+    if is_type_m:
+        if "r301_dj" in f or "r0301_dj" in f:
             return 4
     else:
-        if "72_l0324_da" in f:
-            return 3
-        if "72_r0302_da" in f:
+        if "r302_da" in f or "r0302_da" in f:
             return 4
 
+    # Reglas genéricas de respaldo (fallbacks)
     if "fl" in f or "c1" in f:
         return 1
     elif "fr" in f or "c2" in f:
         return 2
     elif "rl" in f or "c3" in f:
         return 3
-    elif (
-        "rr" in f
-        or "c4" in f
-        or "r302" in f
-        or "r301" in f
-        or "r0301" in f
-    ):
+    elif "rr" in f or "c4" in f:
         return 4
 
     return 0
