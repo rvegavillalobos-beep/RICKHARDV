@@ -898,9 +898,8 @@ if uploaded_file is not None:
         with tab4:
             st.subheader("🧭 Vector Drift & Conveyor Tuning Analysis")
             st.markdown(
-                "Analiza la deriva direccional del centroide de los módulos y"
-                " evalúa el impacto de los ajustes mecánicos en el conveyor a"
-                " lo largo del tiempo."
+                "Analyze the directional drift of module centroids and evaluate"
+                " the impact of mechanical conveyor adjustments over time."
             )
 
             df_vec = df_summary.copy()
@@ -928,7 +927,7 @@ if uploaded_file is not None:
 
             with col_v1:
                 st.markdown(
-                    "##### 📍 Trayectoria del Centroide (Deriva Global X-Y)"
+                    "##### 📍 Centroid Trajectory (Global X-Y Drift)"
                 )
                 fig_drift = go.Figure()
 
@@ -955,7 +954,7 @@ if uploaded_file is not None:
                             colorscale="Viridis",
                             showscale=True,
                             colorbar=dict(
-                                title="Semana (CW)", len=0.8, x=1.15
+                                title="Week (CW)", len=0.8, x=1.15
                             ),  # Separated colorbar to prevent overlap
                         ),
                         line=dict(color="rgba(100,100,100,0.5)", width=1.5),
@@ -965,7 +964,7 @@ if uploaded_file is not None:
                         + " | Run "
                         + df_vec["RunNum"].astype(str),
                         hovertemplate=(
-                            "<b>PartID:</b> %{text}<br><b>Semana:"
+                            "<b>PartID:</b> %{text}<br><b>Week:"
                             "</b> CW%{marker.color}<br><b>Centroid X:</b>"
                             " %{x:.2f} mm<br><b>Centroid Y:</b> %{y:.2f}"
                             " mm<extra></extra>"
@@ -1005,8 +1004,8 @@ if uploaded_file is not None:
                 )
 
                 fig_drift.update_layout(
-                    xaxis_title="Desviación X Promedio [mm]",
-                    yaxis_title="Desviación Y Promedio [mm]",
+                    xaxis_title="Mean X Deviation [mm]",
+                    yaxis_title="Mean Y Deviation [mm]",
                     height=500,
                     margin=dict(
                         l=30, r=130, t=50, b=30
@@ -1024,7 +1023,7 @@ if uploaded_file is not None:
 
             with col_v2:
                 st.markdown(
-                    "##### 📉 Magnitud del Vector de Error por Semana"
+                    "##### 📉 Error Vector Magnitude by Week"
                 )
                 weekly_vector = (
                     df_vec.groupby("CalendarWeek")
@@ -1041,13 +1040,13 @@ if uploaded_file is not None:
                     go.Bar(
                         x=weekly_vector["CalendarWeek"],
                         y=weekly_vector["Mean_Magnitude"],
-                        name="Magnitud Promedio de Deriva [mm]",
+                        name="Mean Drift Magnitude [mm]",
                         marker_color="#0f766e",
                     )
                 )
                 fig_mag.update_layout(
-                    yaxis=dict(title="Magnitud R Promedio (mm)"),
-                    xaxis=dict(title="Semana"),
+                    yaxis=dict(title="Mean Magnitude R (mm)"),
+                    xaxis=dict(title="Week"),
                     height=500,
                     margin=dict(l=20, r=20, t=30, b=20),
                 )
@@ -1055,7 +1054,7 @@ if uploaded_file is not None:
 
             st.markdown("---")
             st.markdown(
-                "##### 📋 Resumen Vectorial por Módulo y Tendencia de Ajuste"
+                "##### 📋 Vector Summary by Module and Adjustment Trend"
             )
             df_vec_display = df_vec[[
                 "Date",
@@ -1069,26 +1068,26 @@ if uploaded_file is not None:
                 "Status",
             ]].copy()
             df_vec_display.columns = [
-                "Fecha",
-                "Semana",
+                "Date",
+                "Week",
                 "Part ID",
-                "Tipo",
-                "Centroide X [mm]",
-                "Centroide Y [mm]",
-                "Magnitud R [mm]",
-                "Ángulo [°]",
-                "Estado",
+                "Type",
+                "Centroid X [mm]",
+                "Centroid Y [mm]",
+                "Magnitude R [mm]",
+                "Angle [°]",
+                "Status",
             ]
-            df_vec_display["Centroide X [mm]"] = df_vec_display[
-                "Centroide X [mm]"
+            df_vec_display["Centroid X [mm]"] = df_vec_display[
+                "Centroid X [mm]"
             ].round(2)
-            df_vec_display["Centroide Y [mm]"] = df_vec_display[
-                "Centroide Y [mm]"
+            df_vec_display["Centroid Y [mm]"] = df_vec_display[
+                "Centroid Y [mm]"
             ].round(2)
-            df_vec_display["Magnitud R [mm]"] = df_vec_display[
-                "Magnitud R [mm]"
+            df_vec_display["Magnitude R [mm]"] = df_vec_display[
+                "Magnitude R [mm]"
             ].round(2)
-            df_vec_display["Ángulo [°]"] = df_vec_display["Ángulo [°]"].round(
+            df_vec_display["Angle [°]"] = df_vec_display["Angle [°]"].round(
                 2
             )
             st.dataframe(
