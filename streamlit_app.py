@@ -896,14 +896,13 @@ if uploaded_file is not None:
                 )
 
         with tab4:
-            st.subheader("🧭 Vector Drift, Conveyor Tuning & Rotation Analysis (First Run Only)")
+            st.subheader("🧭 Vector Drift & Conveyor Tuning (First Run Only)")
             st.markdown(
                 "Analyze the directional drift of module centroids and evaluate "
-                "both mechanical conveyor translation and incoming angular rotation (yaw) over time, "
-                "restricted strictly to **Run 1 (First-Pass Incoming)**."
+                "conveyor translation over time, restricted strictly to **Run 1 (First-Pass Incoming)**."
             )
 
-            # RESTRICT TO RUN 1 ONLY TO AVOID REWORK/RE-MEASUREMENT BIAS
+            # RESTRICT TO RUN 1 ONLY
             df_vec = df_summary[df_summary["RunNum"] == 1].copy()
 
             df_vec["Centroid_X"] = df_vec[
@@ -918,49 +917,8 @@ if uploaded_file is not None:
             df_vec["Vector_Angle"] = np.degrees(
                 np.arctan2(df_vec["Centroid_Y"], df_vec["Centroid_X"])
             )
-
-            # Compute Rotation Angle (Yaw Deviation Δθ)
-            rotation_list = []
-            for _, row in df_vec.iterrows():
-                if (
-                    pd.isna(row["FL_X"])
-                    or pd.isna(row["FR_X"])
-                    or pd.isna(row["RL_X"])
-                    or pd.isna(row["RR_X"])
-                ):
-                    rotation_list.append(0.0)
-                    continue
-                nom = get_nominal_coordinates(row["BatteryType"])
-                f_nom_x = (nom["FL_X"] + nom["FR_X"]) / 2
-                f_nom_y = (nom["FL_Y"] + nom["FR_Y"]) / 2
-                r_nom_x = (nom["RL_X"] + nom["RR_X"]) / 2
-                r_nom_y = (nom["RL_Y"] + nom["RR_Y"]) / 2
-                v_nom_x = f_nom_x - r_nom_x
-                v_nom_y = f_nom_y - r_nom_y
-                angle_nom = np.degrees(np.arctan2(v_nom_y, v_nom_x))
-
-                fl_x_act = nom["FL_X"] + row["FL_X"]
-                fl_y_act = nom["FL_Y"] + row["FL_Y"]
-                fr_x_act = nom["FR_X"] + row["FR_X"]
-                fr_y_act = nom["FR_Y"] + row["FR_Y"]
-                rl_x_act = nom["RL_X"] + row["RL_X"]
-                rl_y_act = nom["RL_Y"] + row["RL_Y"]
-                rr_x_act = nom["RR_X"] + row["RR_X"]
-                rr_y_act = nom["RR_Y"] + row["RR_Y"]
-
-                f_act_x = (fl_x_act + fr_x_act) / 2
-                f_act_y = (fl_y_act + fr_y_act) / 2
-                r_act_x = (rl_x_act + rr_x_act) / 2
-                r_act_y = (rl_y_act + rr_y_act) / 2
-                v_act_x = f_act_x - r_act_x
-                v_act_y = f_act_y - r_act_y
-                angle_act = np.degrees(np.arctan2(v_act_y, v_act_x))
-
-                diff_angle = angle_act - angle_nom
-                diff_angle = (diff_angle + 180) % 360 - 180
-                rotation_list.append(diff_angle)
-
-            df_vec["Rotation_Angle"] = rotation_list
+            # Normalize angle to 0-360 for polar coordinates
+            df_vec["Vector_Angle_360"] = (df_vec["Vector_Angle"] + 360) % 360
 
             # Convert calendar week to numeric value for proper continuous coloring
             df_vec["WeekNum"] = (
@@ -977,7 +935,6 @@ if uploaded_file is not None:
                 )
                 fig_drift = go.Figure()
 
-                # Líneas de referencia CERO para delimitar los 4 cuadrantes
                 fig_drift.add_hline(
                     y=0,
                     line_dash="dash",
@@ -1033,35 +990,6 @@ if uploaded_file is not None:
                     )
                 )
 
-                fig_drift.add_annotation(
-                    x=0,
-                    y=2.8,
-                    text="▲ +Y (Right)",
-                    showarrow=False,
-                    font=dict(size=10, color="#94a3b8"),
-                )
-                fig_drift.add_annotation(
-                    x=0,
-                    y=-2.8,
-                    text="▼ -Y (Left)",
-                    showarrow=False,
-                    font=dict(size=10, color="#94a3b8"),
-                )
-                fig_drift.add_annotation(
-                    x=4.2,
-                    y=0,
-                    text="+X (Back) ▶",
-                    showarrow=False,
-                    font=dict(size=10, color="#94a3b8"),
-                )
-                fig_drift.add_annotation(
-                    x=-4.2,
-                    y=0,
-                    text="◀ -X (Front)",
-                    showarrow=False,
-                    font=dict(size=10, color="#94a3b8"),
-                )
-
                 fig_drift.update_layout(
                     xaxis_title="Mean X Deviation [mm]",
                     yaxis_title="Mean Y Deviation [mm]",
@@ -1110,43 +1038,55 @@ if uploaded_file is not None:
                 st.plotly_chart(fig_mag, use_container_width=True)
 
             st.markdown("---")
-            st.markdown("##### 🔄 Incoming Module Rotation (Yaw Angle Δθ) Trend (Run 1 Only)")
-            
-            fig_rot = go.Figure()
-            fig_rot.add_trace(
-                go.Scatter(
-                    x=df_vec["Date"],
-                    y=df_vec["Rotation_Angle"],
-                    mode="markers+lines",
-                    name="Yaw Rotation [°]",
+            st.markdown(
+                "##### 🌹 Diagrama Polar / Rosa de Vientos de Deriva (Run 1 Only)"
+            )
+
+            fig_polar = go.Figure()
+            fig_polar.add_trace(
+                go.Scatterpolar(
+                    r=df_vec["Vector_Magnitude"],
+                    theta=df_vec["Vector_Angle_360"],
+                    mode="markers",
                     marker=dict(
-                        size=8,
-                        color=df_vec["Rotation_Angle"].abs(),
-                        colorscale="Tealgrn",
+                        size=9,
+                        color=df_vec["WeekNum"],
+                        colorscale="Viridis",
                         showscale=True,
-                        colorbar=dict(title="|Rotation| [°]", len=0.8, x=1.02),
+                        colorbar=dict(
+                            title="Week (CW)", len=0.8, x=1.02
+                        ),
                     ),
-                    line=dict(color="#0f766e", width=1.5),
+                    text=df_vec["CalendarWeek"]
+                    + " | "
+                    + df_vec["PartID"]
+                    + " | Run "
+                    + df_vec["RunNum"].astype(str),
                     hovertemplate=(
-                        "<b>PartID:</b> %{text}<br><b>Date:</b> %{x}<br><b>Rotation Angle:</b> %{y:.2f}°<extra></extra>"
+                        "<b>PartID:</b> %{text}<br><b>Drift Magnitude R:</b>"
+                        " %{r:.2f} mm<br><b>Direction Angle θ:</b>"
+                        " %{theta:.1f}°<extra></extra>"
                     ),
-                    text=df_vec["PartID"] + " | Run " + df_vec["RunNum"].astype(str),
+                    name="Drift Vectors",
                 )
             )
-            fig_rot.add_hline(
-                y=0, line_dash="dash", line_color="#94a3b8", annotation_text="Perfect Alignment (0°)"
+            fig_polar.update_layout(
+                polar=dict(
+                    radialaxis=dict(visible=True, title="Magnitude [mm]"),
+                    angularaxis=dict(
+                        direction="counterclockwise",
+                        rotation=0,
+                        period=360,
+                    ),
+                ),
+                height=450,
+                margin=dict(l=40, r=80, t=30, b=30),
             )
-            fig_rot.update_layout(
-                xaxis_title="Date & Time",
-                yaxis_title="Rotation Angle Δθ [°]",
-                height=400,
-                margin=dict(l=20, r=80, t=30, b=20),
-            )
-            st.plotly_chart(fig_rot, use_container_width=True)
+            st.plotly_chart(fig_polar, use_container_width=True)
 
             st.markdown("---")
             st.markdown(
-                "##### 📋 Vector & Rotation Summary Table (Run 1 Only)"
+                "##### 📋 Vector Summary Table (Run 1 Only)"
             )
             df_vec_display = df_vec[[
                 "Date",
@@ -1156,7 +1096,7 @@ if uploaded_file is not None:
                 "Centroid_X",
                 "Centroid_Y",
                 "Vector_Magnitude",
-                "Rotation_Angle",
+                "Vector_Angle",
                 "Status",
             ]].copy()
             df_vec_display.columns = [
@@ -1167,7 +1107,7 @@ if uploaded_file is not None:
                 "Centroid X [mm]",
                 "Centroid Y [mm]",
                 "Magnitude R [mm]",
-                "Yaw Rotation [°]",
+                "Angle θ [°]",
                 "Status",
             ]
             df_vec_display["Centroid X [mm]"] = df_vec_display[
@@ -1179,8 +1119,8 @@ if uploaded_file is not None:
             df_vec_display["Magnitude R [mm]"] = df_vec_display[
                 "Magnitude R [mm]"
             ].round(2)
-            df_vec_display["Yaw Rotation [°]"] = df_vec_display[
-                "Yaw Rotation [°]"
+            df_vec_display["Angle θ [°]"] = df_vec_display[
+                "Angle θ [°]"
             ].round(2)
             st.dataframe(
                 df_vec_display, hide_index=True, use_container_width=True
