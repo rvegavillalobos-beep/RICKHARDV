@@ -977,6 +977,20 @@ if uploaded_file is not None:
                 )
                 fig_drift = go.Figure()
 
+                # Líneas de referencia CERO para delimitar los 4 cuadrantes
+                fig_drift.add_hline(
+                    y=0,
+                    line_dash="dash",
+                    line_color="rgba(150, 150, 150, 0.6)",
+                    line_width=1.2,
+                )
+                fig_drift.add_vline(
+                    x=0,
+                    line_dash="dash",
+                    line_color="rgba(150, 150, 150, 0.6)",
+                    line_width=1.2,
+                )
+
                 fig_drift.add_trace(
                     go.Scatter(
                         x=[0],
