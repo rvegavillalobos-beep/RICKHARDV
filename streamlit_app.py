@@ -229,34 +229,55 @@ def style_squareness_report(df, diag_limit):
 # FUNCIONES AUXILIARES: GENERACIÓN DE GRÁFICAS Y MATRIZ 2X2 POR ESQUINA
 # ==============================================================================
 def plot_corner_deviation(df_corner, title_name, threshold_val):
-    """Genera una gráfica individual de desviación X e Y a lo largo del tiempo/CW."""
-    fig = go.Figure()
+    """Genera gráfica de tendencia con puntos espaciados equitativamente
 
-    x_axis_col = (
-        "CalendarWeek" if "CalendarWeek" in df_corner.columns else "Date"
+    y ordenados cronológicamente de la batería más vieja a la más nueva.
+    """
+    if df_corner.empty:
+        return go.Figure()
+
+    # Ordenar cronológicamente de vieja a nueva y generar índice de secuencia equidistante
+    df_corner = df_corner.sort_values(by="Date", ascending=True).reset_index(
+        drop=True
     )
+    df_corner["Seq"] = range(1, len(df_corner) + 1)
+    df_corner["Date_Str"] = df_corner["Date"].dt.strftime("%Y-%m-%d %H:%M")
+
+    fig = go.Figure()
 
     # Desviación X (Línea Roja)
     fig.add_trace(
         go.Scatter(
-            x=df_corner[x_axis_col],
+            x=df_corner["Seq"],
             y=df_corner["Dev_X"],
             mode="lines+markers",
             name="X",
             line=dict(color="#D92B2B", width=1.5),
             marker=dict(size=4),
+            customdata=df_corner[["PartID", "Date_Str", "CalendarWeek"]],
+            hovertemplate=(
+                "<b>Batería #%{x}</b><br>PartID: %{customdata[0]}<br>Fecha:"
+                " %{customdata[1]}<br>CW: %{customdata[2]}<br>Dev X: %{y:.2f}"
+                " mm<extra></extra>"
+            ),
         )
     )
 
     # Desviación Y (Línea Verde)
     fig.add_trace(
         go.Scatter(
-            x=df_corner[x_axis_col],
+            x=df_corner["Seq"],
             y=df_corner["Dev_Y"],
             mode="lines+markers",
             name="Y",
             line=dict(color="#27AE60", width=1.5),
             marker=dict(size=4),
+            customdata=df_corner[["PartID", "Date_Str", "CalendarWeek"]],
+            hovertemplate=(
+                "<b>Batería #%{x}</b><br>PartID: %{customdata[0]}<br>Fecha:"
+                " %{customdata[1]}<br>CW: %{customdata[2]}<br>Dev Y: %{y:.2f}"
+                " mm<extra></extra>"
+            ),
         )
     )
 
@@ -278,7 +299,7 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
         annotation_position="bottom right",
     )
 
-    # Formato visual tipo panel industrial
+    # Formato visual limpio con eje X de secuencia
     fig.update_layout(
         title=dict(
             text=f"<b>{title_name}</b>",
@@ -287,10 +308,9 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
             font=dict(color="#D92B2B", size=13),
         ),
         xaxis=dict(
-            title="Calendar Week",
+            title="Batería # (Orden Cronológico)",
             showgrid=True,
             gridcolor="#E5E5E5",
-            dtick=1,
         ),
         yaxis=dict(
             title="Desviación (mm)",
@@ -314,7 +334,7 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
 
 def render_battery_corner_matrix(df_battery, battery_type_name, threshold_val):
     """Renderiza la matriz física 2x2 para las 4 esquinas de la batería especificada."""
-    st.subheader(f"🔋 {battery_type_name} Corner Deviation Plot Over Time")
+    st.subheader(f"🔋 {battery_type_name} Corner Deviation Trend (Sequential)")
 
     row1_col1, row1_col2 = st.columns(2)
     row2_col1, row2_col2 = st.columns(2)
@@ -483,7 +503,6 @@ if uploaded_file is not None:
                 if c_idx in [1, 2, 3, 4]:
                     corners[c_idx] = (r_item["X_Val"], r_item["Y_Val"])
 
-            # Conteo preciso de esquinas con al menos 1 dimensión fuera de especificación
             corners_out_of_spec = 0
             for c_idx in [1, 2, 3, 4]:
                 cx, cy = corners[c_idx]
@@ -540,7 +559,6 @@ if uploaded_file is not None:
         ]
         df_summary = df_summary[cols]
 
-        # Aplicación del filtro global si el Toggle está activo
         if exclude_1_corner:
             df_analysis = df_summary[
                 df_summary["CornersOutOfSpec"] != 1
@@ -710,17 +728,17 @@ if uploaded_file is not None:
             )
 
             # ==============================================================================
-            # NUEVO MÓDULO INTEGRADO: ANÁLISIS TEMPORAL MATRIZ 2X2 POR ESQUINA
+            # MATRIZ TEMPORAL 2X2 POR ESQUINA (SECUENCIA CRONOLÓGICA CON ESPACIADO HOMOGÉNEO)
             # ==============================================================================
             st.divider()
             st.header("📈 Análisis Temporal de Desviación por Esquinas (2x2 Matrix)")
 
-            # Construcción del DataFrame largo para las gráficas
             corner_records = []
             for _, row in df_analysis.iterrows():
                 cw = row["CalendarWeek"]
                 b_type = row["BatteryType"]
                 dt = row["Date"]
+                p_id = row["PartID"]
 
                 corner_map = {
                     "Front-Left": (row["FL_X"], row["FL_Y"]),
@@ -734,6 +752,7 @@ if uploaded_file is not None:
                         corner_records.append({
                             "CalendarWeek": cw,
                             "Date": dt,
+                            "PartID": p_id,
                             "Battery_Type": b_type,
                             "Corner": c_name,
                             "Dev_X": dx,
@@ -743,7 +762,7 @@ if uploaded_file is not None:
             df_corner_trends = pd.DataFrame(corner_records)
 
             if not df_corner_trends.empty:
-                # 1. Despliegue para Type M
+                # 1. Type M
                 df_m_trend = df_corner_trends[
                     df_corner_trends["Battery_Type"] == "Type M"
                 ]
@@ -756,7 +775,7 @@ if uploaded_file is not None:
 
                 st.markdown("<br>", unsafe_allow_html=True)
 
-                # 2. Despliegue para Type S
+                # 2. Type S
                 df_s_trend = df_corner_trends[
                     df_corner_trends["Battery_Type"] == "Type S"
                 ]
