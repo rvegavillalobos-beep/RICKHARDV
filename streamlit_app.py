@@ -22,25 +22,22 @@ def determine_battery_type(part_id: str, feature_names) -> str:
     """
     p_id = str(part_id).upper().strip()
     
-    # Si recibe una lista/serie de características de la corrida, las une
     if isinstance(feature_names, (list, set, pd.Series)):
         f_combined = " ".join([str(f).upper().strip() for f in feature_names])
     else:
         f_combined = str(feature_names).upper().strip()
 
-    # Evaluación global para Type M (Soporta sufijos _DJ y _DI)
     if "_DJ" in p_id or "_DJ" in f_combined or "_DI" in p_id or "_DI" in f_combined:
         return "Type M"
     if "_M" in p_id or "-M" in p_id or "TYPE M" in p_id or "TYPEM" in p_id or p_id.endswith("M"):
         return "Type M"
 
-    # Evaluación para Type S
     if "_DA" in p_id or "_DA" in f_combined:
         return "Type S"
     if "_S" in p_id or "-S" in p_id or "TYPE S" in p_id or "TYPES" in p_id:
         return "Type S"
 
-    return "Type S"  # Valor por defecto
+    return "Type S"
 
 
 def extract_corner_index(feature_name: str, part_id: str) -> int:
@@ -175,7 +172,14 @@ def style_report(df, limit):
                             )
                     except:
                         pass
-            if col == "Status":
+            elif col == "CornersOutOfSpec":
+                val = row[col]
+                if val is not None and not pd.isna(val) and int(val) > 0:
+                    styles[i] = (
+                        "background-color: #d97706; color: white;"
+                        " font-weight: bold;"
+                    )
+            elif col == "Status":
                 if str(row[col]) == "FAIL":
                     styles[i] = (
                         "background-color: #ff4d4d; color: white; font-weight:"
@@ -225,6 +229,12 @@ max_diag_tol = st.sidebar.slider(
 )
 spec_limit = st.sidebar.slider(
     "X/Y Specification Limit [±mm]", 1.0, 5.0, 3.0, 0.5
+)
+
+exclude_1_corner = st.sidebar.checkbox(
+    "Excluir baterías con solo 1 esquina desviada (Deformed)",
+    value=False,
+    help="Excluye del análisis y métricas (Summary, FPY, Trend) las baterías que tienen exactamente 1 esquina fuera de tolerancia.",
 )
 
 uploaded_file = st.file_uploader(
@@ -280,9 +290,6 @@ if uploaded_file is not None:
             pd.to_numeric(df_raw[y_dev_col], errors="coerce")
             .fillna(0.0)
         )
-        df_raw["IsOutOfSpec"] = (df_raw["X_Val"].abs() > spec_limit) | (
-            df_raw["Y_Val"].abs() > spec_limit
-        )
 
         df_raw = df_raw.sort_values(by="ParsedDate").reset_index(drop=True)
 
@@ -322,7 +329,6 @@ if uploaded_file is not None:
             cal_week = first_row["CalendarWeek"]
             p_val = first_row[part_col]
 
-            # EVALUACIÓN GLOBAL DEL TIPO DE BATERÍA EN LA CORRIDA
             bat_type = determine_battery_type(p_val, group[feat_col])
 
             corners = {
@@ -331,16 +337,21 @@ if uploaded_file is not None:
                 3: (None, None),
                 4: (None, None),
             }
-            out_spec_flags = []
 
             for _, r_item in group.iterrows():
                 c_idx = r_item["CornerIndex"]
                 if c_idx in [1, 2, 3, 4]:
                     corners[c_idx] = (r_item["X_Val"], r_item["Y_Val"])
-                    out_spec_flags.append(r_item["IsOutOfSpec"])
 
-            total_out_spec = sum(out_spec_flags) if out_spec_flags else 0
-            status = "FAIL" if total_out_spec > 0 else "PASS"
+            # Conteo preciso de esquinas con al menos 1 dimensión fuera de especificación
+            corners_out_of_spec = 0
+            for c_idx in [1, 2, 3, 4]:
+                cx, cy = corners[c_idx]
+                if cx is not None and cy is not None and not pd.isna(cx) and not pd.isna(cy):
+                    if abs(cx) > spec_limit or abs(cy) > spec_limit:
+                        corners_out_of_spec += 1
+
+            status = "FAIL" if corners_out_of_spec > 0 else "PASS"
 
             modules_data.append({
                 "Date": full_dt,
@@ -356,7 +367,7 @@ if uploaded_file is not None:
                 "RL_Y": corners[3][1],
                 "RR_X": corners[4][0],
                 "RR_Y": corners[4][1],
-                "OutOfSpecCount": total_out_spec,
+                "CornersOutOfSpec": corners_out_of_spec,
                 "Status": status,
             })
 
@@ -379,10 +390,17 @@ if uploaded_file is not None:
             "RL_Y",
             "RR_X",
             "RR_Y",
-            "OutOfSpecCount",
+            "CornersOutOfSpec",
             "Status",
         ]
         df_summary = df_summary[cols]
+
+        # Aplicación del filtro global si el Toggle está activo
+        if exclude_1_corner:
+            df_analysis = df_summary[df_summary["CornersOutOfSpec"] != 1].copy()
+            st.sidebar.warning("⚠️ Excluyendo baterías con exactamente 1 esquina desviada.")
+        else:
+            df_analysis = df_summary.copy()
 
         tab1, tab2, tab3, tab4 = st.tabs([
             "📊 General Summary & FPY",
@@ -394,7 +412,10 @@ if uploaded_file is not None:
         with tab1:
             st.subheader("📋 First-Run Quality Summary")
 
-            df_run1 = df_summary[df_summary["RunNum"] == 1]
+            if exclude_1_corner:
+                st.info("ℹ️ **Filtro activo:** Se han excluido del análisis las baterías que presentaron exactamente 1 esquina desviada.")
+
+            df_run1 = df_analysis[df_analysis["RunNum"] == 1]
             total_run1 = len(df_run1)
             passed_run1 = len(df_run1[df_run1["Status"] == "PASS"])
             failed_run1 = len(df_run1[df_run1["Status"] == "FAIL"])
@@ -532,7 +553,7 @@ if uploaded_file is not None:
             st.markdown("---")
             st.subheader("General Module Report (Chronological Order)")
             st.dataframe(
-                style_report(df_summary, spec_limit), use_container_width=True
+                style_report(df_analysis, spec_limit), use_container_width=True
             )
 
         with tab2:
@@ -540,8 +561,8 @@ if uploaded_file is not None:
                 "📈 Real Geometric Visualization (Permanent Tolerance Zones)"
             )
 
-            if not df_summary.empty:
-                total_mods = len(df_summary)
+            if not df_analysis.empty:
+                total_mods = len(df_analysis)
 
                 col_ctrl1, col_ctrl2 = st.columns(2)
                 with col_ctrl1:
@@ -576,13 +597,13 @@ if uploaded_file is not None:
                     )
 
                 start_idx, end_idx = selected_range
-                df_to_plot = df_summary.iloc[
+                df_to_plot = df_analysis.iloc[
                     start_idx : end_idx + 1
                 ].copy()
 
                 if selected_mod != "--- None / All ---":
                     target_row = None
-                    for _, r in df_summary.iterrows():
+                    for _, r in df_analysis.iterrows():
                         mod_id = f"{r['PartID']} | Run {r['RunNum']} | {str(r['Date'])[:10]}"
                         if mod_id == selected_mod:
                             target_row = r
@@ -600,7 +621,7 @@ if uploaded_file is not None:
 
                 fig = go.Figure()
 
-                all_battery_types = df_summary["BatteryType"].unique()
+                all_battery_types = df_analysis["BatteryType"].unique()
                 for b_type in all_battery_types:
                     nom = get_nominal_coordinates(b_type)
                     nom_x = [
@@ -651,7 +672,7 @@ if uploaded_file is not None:
                                     width=1.5,
                                     dash="dot",
                                 ),
-                                showlegend=False,  # <-- CORRECCIÓN: Siempre visibles de forma fija
+                                showlegend=False,
                                 hovertemplate=(
                                     f"<b>Tolerance Zone:</b> ±{spec_limit}mm"
                                     f" (Scaled {exaggeration}x)<br><b>Corner:</b>"
@@ -718,7 +739,8 @@ if uploaded_file is not None:
                             hovertemplate=(
                                 f"<b>PartID:</b> {row['PartID']}<br><b>Run:</b>"
                                 f" {row['RunNum']}<br><b>Status:</b>"
-                                f" {status}<br><b>Type:</b>"
+                                f" {status}<br><b>NOK Corners:</b>"
+                                f" {row['CornersOutOfSpec']}<br><b>Type:</b>"
                                 f" {row['BatteryType']}<br><b>Exaggeration:</b>"
                                 f" {exaggeration}x<br><b>Date:</b>"
                                 f" {row['Date']}<extra></extra>"
@@ -755,7 +777,7 @@ if uploaded_file is not None:
             )
             squareness_records = []
 
-            for _, row in df_summary.iterrows():
+            for _, row in df_analysis.iterrows():
                 if (
                     pd.isna(row["FL_X"])
                     or pd.isna(row["FR_X"])
@@ -913,7 +935,7 @@ if uploaded_file is not None:
                 " both mechanical conveyor translation and incoming angular rotation (yaw) over time."
             )
 
-            df_vec = df_summary.copy()
+            df_vec = df_analysis.copy()
             df_vec["Centroid_X"] = df_vec[
                 ["FL_X", "FR_X", "RL_X", "RR_X"]
             ].mean(axis=1)
@@ -927,7 +949,6 @@ if uploaded_file is not None:
                 np.arctan2(df_vec["Centroid_Y"], df_vec["Centroid_X"])
             )
 
-            # Compute Rotation Angle (Yaw Deviation Δθ)
             rotation_list = []
             for _, row in df_vec.iterrows():
                 if (
@@ -970,7 +991,6 @@ if uploaded_file is not None:
 
             df_vec["Rotation_Angle"] = rotation_list
 
-            # Convert calendar week to numeric value for proper continuous coloring
             df_vec["WeekNum"] = (
                 df_vec["CalendarWeek"]
                 .str.replace("CW", "", regex=False)
@@ -1183,7 +1203,7 @@ if uploaded_file is not None:
         st.markdown("---")
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            df_summary.to_excel(
+            df_analysis.to_excel(
                 writer, sheet_name="Module_Summary_Report", index=False
             )
             if "df_quality_summary" in locals():
