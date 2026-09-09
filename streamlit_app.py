@@ -284,9 +284,8 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
             text=f"<b>{title_name}</b>",
             x=0.5,
             xanchor="center",
-            font=dict(color="white", size=13),
+            font=dict(color="#D92B2B", size=13),
         ),
-        title_background_color="#D92B2B",
         xaxis=dict(
             title="Calendar Week",
             showgrid=True,
