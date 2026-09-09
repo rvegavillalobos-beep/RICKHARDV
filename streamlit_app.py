@@ -734,7 +734,9 @@ if uploaded_file is not None:
             st.header("📈 Análisis Temporal de Desviación por Esquinas (2x2 Matrix)")
 
             corner_records = []
-            for _, row in df_analysis.iterrows():
+df_run1_only = df_analysis[df_analysis["RunNum"] == 1]
+
+for _, row in df_run1_only.iterrows():
                 cw = row["CalendarWeek"]
                 b_type = row["BatteryType"]
                 dt = row["Date"]
