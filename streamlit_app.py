@@ -2,6 +2,7 @@ import io
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
 
 st.set_page_config(
@@ -371,6 +372,9 @@ def render_battery_corner_matrix(df_battery, battery_type_name, threshold_val):
 st.title("⚙️ Quality Control & Geometric Analysis Module")
 
 st.sidebar.header("🛠️ Configuration & Tolerances")
+fpy_target = st.sidebar.slider(
+    "Target FPY [%]", 50.0, 100.0, 90.0, 5.0
+)
 max_diag_tol = st.sidebar.slider(
     "Max. Diagonal Delta Tolerance [mm]", 1.0, 10.0, 1.5, 0.5
 )
@@ -670,29 +674,145 @@ if uploaded_file is not None:
                     use_container_width=True,
                 )
 
-          col_t1, col_t2 = st.columns([1.2, 2.8])
-            with col_t1:
-                st.markdown("##### OVERALL KPI SUMMARY")
-                st.dataframe(
-                    df_quality_summary,
-                    hide_index=True,
-                    use_container_width=True,
-                )
-
-            # =========================================================
-            # ✂️ BORRAR Y REEMPLAZAR DESDE AQUÍ...
-            # =========================================================
             with col_t2:
-                st.markdown("##### WEEKLY FIRST-PASS YIELD TREND")
-                ... (todo el código de la gráfica anterior) ...
+                st.markdown("##### WEEKLY FPY TREND & PRODUCTION VOLUME")
+                if not df_first_valid.empty:
+                    weekly_group = df_first_valid.groupby("CalendarWeek")
+                    weekly_data = []
+                    for w, w_group in weekly_group:
+                        w_total = len(w_group)
+                        w_passed = len(w_group[w_group["Status"] == "PASS"])
+                        w_failed = len(w_group[w_group["Status"] == "FAIL"])
+                        w_inc = len(w_group[w_group["Status"] == "INCOMPLETE"])
+
+                        w_rate = (w_passed / w_total * 100) if w_total > 0 else 0
+
+                        weekly_data.append({
+                            "CalendarWeek": w,
+                            "Total": w_total,
+                            "Passed": w_passed,
+                            "Failed": w_failed,
+                            "Incomplete": w_inc,
+                            "PassRate": w_rate,
+                            "LowSample": w_total < 5,
+                        })
+                    df_weekly = pd.DataFrame(weekly_data)
+
+                    # Moving Average 3 Weeks (MA3)
+                    df_weekly["MA3_FPY"] = (
+                        df_weekly["PassRate"].rolling(window=3, min_periods=1).mean()
+                    )
+
+                    fig_weekly = make_subplots(specs=[[{"secondary_y": True}]])
+
+                    # Volume Bars (Secondary Axis - Right)
+                    fig_weekly.add_trace(
+                        go.Bar(
+                            x=df_weekly["CalendarWeek"],
+                            y=df_weekly["Passed"],
+                            name="Volume Passed (OK)",
+                            marker_color="rgba(15, 118, 110, 0.35)",
+                        ),
+                        secondary_y=True,
+                    )
+                    fig_weekly.add_trace(
+                        go.Bar(
+                            x=df_weekly["CalendarWeek"],
+                            y=df_weekly["Failed"],
+                            name="Volume Failed (NOK)",
+                            marker_color="rgba(225, 29, 72, 0.35)",
+                        ),
+                        secondary_y=True,
+                    )
+                    if not exclude_incomplete and sum(df_weekly["Incomplete"]) > 0:
+                        fig_weekly.add_trace(
+                            go.Bar(
+                                x=df_weekly["CalendarWeek"],
+                                y=df_weekly["Incomplete"],
+                                name="Volume Incomplete",
+                                marker_color="rgba(107, 114, 128, 0.35)",
+                            ),
+                            secondary_y=True,
+                        )
+
+                    # Weekly FPY Line (Primary Axis - Left)
+                    fpy_labels = [
+                        f"{rate:.0f}%*" if low else f"{rate:.0f}%"
+                        for rate, low in zip(df_weekly["PassRate"], df_weekly["LowSample"])
+                    ]
+
+                    fig_weekly.add_trace(
+                        go.Scatter(
+                            x=df_weekly["CalendarWeek"],
+                            y=df_weekly["PassRate"],
+                            mode="lines+markers+text",
+                            name="Weekly FPY (%)",
+                            line=dict(color="#0f766e", width=3),
+                            marker=dict(size=7, color="#0f766e"),
+                            text=fpy_labels,
+                            textposition="top center",
+                            hovertemplate="<b>%{x}</b><br>FPY: %{y:.1f}%<br>Total tested: %{customdata} units<extra></extra>",
+                            customdata=df_weekly["Total"],
+                        ),
+                        secondary_y=False,
+                    )
+
+                    # MA3 Moving Average Line
+                    fig_weekly.add_trace(
+                        go.Scatter(
+                            x=df_weekly["CalendarWeek"],
+                            y=df_weekly["MA3_FPY"],
+                            mode="lines",
+                            name="3-Week Moving Avg (MA3)",
+                            line=dict(color="#d97706", width=2, dash="dash"),
+                            hovertemplate="<b>3-Week MA</b>: %{y:.1f}%<extra></extra>",
+                        ),
+                        secondary_y=False,
+                    )
+
+                    # Target Line
+                    fig_weekly.add_hline(
+                        y=fpy_target,
+                        line_dash="dot",
+                        line_color="#16a34a",
+                        line_width=2,
+                        annotation_text=f"Target: {fpy_target:.0f}%",
+                        annotation_position="top left",
+                        secondary_y=False,
+                    )
+
+                    fig_weekly.update_layout(
+                        barmode="stack",
+                        height=380,
+                        margin=dict(l=20, r=20, t=30, b=20),
+                        legend=dict(
+                            orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1
+                        ),
+                        template="plotly_white",
+                    )
+
+                    fig_weekly.update_yaxes(
+                        title_text="FPY (%)",
+                        range=[0, 115],
+                        secondary_y=False,
+                        showgrid=True,
+                        gridcolor="#E5E5E5",
+                    )
+                    fig_weekly.update_yaxes(
+                        title_text="Tested Volume (Units)",
+                        secondary_y=True,
+                        showgrid=False,
+                    )
+                    fig_weekly.update_xaxes(title_text="Calendar Week")
+
+                    st.plotly_chart(fig_weekly, use_container_width=True)
+                    st.caption(
+                        "📌 **Note:** Weeks marked with an asterisk (*) have a low sample size"
+                        " (N < 5)."
+                    )
                 else:
                     st.info("No data available to generate the weekly trend.")
-            # =========================================================
-            # ... HASTA AQUÍ ✂️
-            # =========================================================
 
-            st.markdown("---")
-            st.markdown("##### 📅 WEEKLY PASS RATE & BREAKDOWN TABLE")
             st.markdown("---")
             st.markdown("##### 📅 WEEKLY PASS RATE & BREAKDOWN TABLE")
             if not df_first_valid.empty:
