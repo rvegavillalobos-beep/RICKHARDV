@@ -560,10 +560,8 @@ if uploaded_file is not None:
         # DINÁMICA DE DATASETS Y TOGGLE
         # ==============================================================================
         if exclude_incomplete:
-            # TOGGLE ACTIVADO: Se excluyen todas las mediciones incompletas
             df_analysis = df_summary[df_summary["IsComplete"] == True].copy()
 
-            # Se busca la Primera Corrida COMPLETA disponible por batería
             first_complete_records = []
             for _, group in df_summary.groupby("PartID"):
                 complete_runs = group[group["IsComplete"] == True]
@@ -580,10 +578,8 @@ if uploaded_file is not None:
                 " y gráficos."
             )
         else:
-            # TOGGLE DESACTIVADO: Se mantienen todos los registros brutos
             df_analysis = df_summary.copy()
 
-            # Evaluación ESTRICTA de la Corrida 1 (First Attempt Real) por batería
             first_run_records = []
             for _, group in df_summary.groupby("PartID"):
                 r1 = group[group["RunNum"] == 1]
@@ -597,6 +593,15 @@ if uploaded_file is not None:
                 if first_run_records
                 else pd.DataFrame(columns=df_summary.columns)
             )
+
+        # Clave interna estandarizada para cruce exacto entre pestañas
+        df_analysis["_mod_key"] = (
+            df_analysis["PartID"].astype(str)
+            + " | Run "
+            + df_analysis["RunNum"].astype(str)
+            + " | "
+            + pd.to_datetime(df_analysis["Date"]).dt.strftime("%Y-%m-%d")
+        )
 
         # Pestañas de análisis
         tab1, tab2, tab3, tab4 = st.tabs([
@@ -632,7 +637,6 @@ if uploaded_file is not None:
                 df_first_valid[df_first_valid["Status"] == "INCOMPLETE"]
             )
 
-            # Cálculo de First-Pass Yield (FPY)
             fpy_val = (
                 (passed_valid / total_valid_modules * 100)
                 if total_valid_modules > 0
@@ -891,17 +895,21 @@ if uploaded_file is not None:
                         step=0.5,
                     )
 
-                selected_mod = st.session_state["selected_mod_target"]
+                selected_mod = st.session_state.get("selected_mod_target", "--- None / All ---")
+                
+                start_idx, end_idx = selected_range
+                df_to_plot = df_analysis.iloc[start_idx : end_idx + 1].copy()
+
+                # Fuerza la inclusión del módulo seleccionado si está fuera del rango del slider
                 if selected_mod != "--- None / All ---":
                     st.info(
                         f"🔍 **Module selected for plot focus:**"
                         f" `{selected_mod}` (Highlighted in bright cyan)"
                     )
-
-                start_idx, end_idx = selected_range
-                df_to_plot = df_analysis.iloc[
-                    start_idx : end_idx + 1
-                ].copy()
+                    if selected_mod in df_analysis["_mod_key"].values:
+                        if selected_mod not in df_to_plot["_mod_key"].values:
+                            target_row = df_analysis[df_analysis["_mod_key"] == selected_mod]
+                            df_to_plot = pd.concat([df_to_plot, target_row], ignore_index=True)
 
                 fig = go.Figure()
 
@@ -988,7 +996,7 @@ if uploaded_file is not None:
                     mod_x = [act_rl_x, act_fl_x, act_fr_x, act_rr_x, act_rl_x]
                     mod_y = [act_rl_y, act_fl_y, act_fr_y, act_rr_y, act_rl_y]
 
-                    mod_identifier = f"{row['PartID']} | Run {row['RunNum']} | {str(row['Date'])[:10]}"
+                    mod_identifier = row["_mod_key"]
                     is_targeted = mod_identifier == selected_mod
 
                     if is_targeted:
@@ -1158,7 +1166,8 @@ if uploaded_file is not None:
                 if selected_rows:
                     row_idx = selected_rows[0]
                     r_sel = df_squareness.iloc[row_idx]
-                    new_target = f"{r_sel['PartID']} | Run {r_sel['RunNum']} | {str(r_sel['Date'])[:10]}"
+                    date_str = pd.to_datetime(r_sel["Date"]).strftime("%Y-%m-%d")
+                    new_target = f"{r_sel['PartID']} | Run {r_sel['RunNum']} | {date_str}"
                     if new_target != st.session_state["selected_mod_target"]:
                         st.session_state["selected_mod_target"] = new_target
                         st.rerun()
