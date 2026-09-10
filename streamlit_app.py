@@ -219,11 +219,17 @@ def style_squareness_report(df, diag_limit):
                         )
                 except:
                     pass
-            if col == "Squareness Status" and str(row[col]) == "DEFORMED":
-                styles[i] = (
-                    "background-color: #ff4d4d; color: white; font-weight:"
-                    " bold;"
-                )
+            if col == "Squareness Status":
+                if str(row[col]) == "DEFORMED":
+                    styles[i] = (
+                        "background-color: #ff4d4d; color: white; font-weight:"
+                        " bold;"
+                    )
+                elif str(row[col]) == "INCOMPLETE":
+                    styles[i] = (
+                        "background-color: #6b7280; color: white; font-weight:"
+                        " bold;"
+                    )
         return styles
 
     return df.style.apply(apply_styles, axis=1)
@@ -1054,16 +1060,47 @@ if uploaded_file is not None:
             st.subheader(
                 "📐 Advanced Squareness & Deformation Root Cause Analysis"
             )
+
+            if exclude_incomplete:
+                st.info(
+                    "ℹ️ **Incomplete Measurement Exclusion Active:** Measurements"
+                    " with incomplete parameters (< 4 corners) are marked as"
+                    " `INCOMPLETE` and excluded from this analysis."
+                )
+
             squareness_records = []
 
             for _, row in df_analysis.iterrows():
-                if (
+                # Verify measurement completeness
+                has_missing_corners = (
                     pd.isna(row["FL_X"])
                     or pd.isna(row["FR_X"])
                     or pd.isna(row["RL_X"])
                     or pd.isna(row["RR_X"])
-                ):
-                    continue
+                    or row["Status"] == "INCOMPLETE"
+                )
+
+                if has_missing_corners:
+                    if exclude_incomplete:
+                        continue
+                    else:
+                        squareness_records.append({
+                            "Date": row["Date"],
+                            "PartID": row["PartID"],
+                            "RunNum": row["RunNum"],
+                            "BatteryType": row["BatteryType"],
+                            "Diag 1 [mm]": np.nan,
+                            "Diag 2 [mm]": np.nan,
+                            "Delta Diag [mm]": np.nan,
+                            "Width Delta [mm]": np.nan,
+                            "Length Delta [mm]": np.nan,
+                            "FL Angular Dev [°]": np.nan,
+                            "Squareness Status": "INCOMPLETE",
+                            "Root Cause Details": (
+                                "Incomplete measurement (< 4 corners)"
+                            ),
+                        })
+                        continue
 
                 nom = get_nominal_coordinates(row["BatteryType"])
 
@@ -1196,7 +1233,7 @@ if uploaded_file is not None:
                         st.rerun()
             else:
                 st.info(
-                    "Not enough complete 4-corner data available to calculate"
+                    "No complete 4-corner data available to calculate"
                     " squareness."
                 )
 
