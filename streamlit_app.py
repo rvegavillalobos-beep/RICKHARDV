@@ -16,8 +16,8 @@ if "selected_mod_target" not in st.session_state:
 
 
 def determine_battery_type(part_id: str, feature_names) -> str:
-    """Determines whether the battery is Type M or Type S by evaluating
-    the PartID and the full feature set of the battery/run.
+    """Determina si la batería es Type M o Type S evaluando el PartID y el
+    conjunto completo de Features de la batería/corrida.
     """
     p_id = str(part_id).upper().strip()
 
@@ -196,11 +196,6 @@ def style_report(df, limit):
                         "background-color: #2eb82e; color: white; font-weight:"
                         " bold;"
                     )
-                elif str(row[col]) == "INCOMPLETE":
-                    styles[i] = (
-                        "background-color: #6b7280; color: white; font-weight:"
-                        " bold;"
-                    )
         return styles
 
     return df.style.apply(apply_styles, axis=1)
@@ -219,29 +214,27 @@ def style_squareness_report(df, diag_limit):
                         )
                 except:
                     pass
-            if col == "Squareness Status":
-                if str(row[col]) == "DEFORMED":
-                    styles[i] = (
-                        "background-color: #ff4d4d; color: white; font-weight:"
-                        " bold;"
-                    )
-                elif str(row[col]) == "INCOMPLETE":
-                    styles[i] = (
-                        "background-color: #6b7280; color: white; font-weight:"
-                        " bold;"
-                    )
+            if col == "Squareness Status" and str(row[col]) == "DEFORMED":
+                styles[i] = (
+                    "background-color: #ff4d4d; color: white; font-weight:"
+                    " bold;"
+                )
         return styles
 
     return df.style.apply(apply_styles, axis=1)
 
 
 # ==============================================================================
-# HELPER FUNCTIONS: CHART GENERATION & 2X2 CORNER MATRIX
+# FUNCIONES AUXILIARES: GENERACIÓN DE GRÁFICAS Y MATRIZ 2X2 POR ESQUINA
 # ==============================================================================
 def plot_corner_deviation(df_corner, title_name, threshold_val):
+    """Genera gráfica de tendencia con puntos espaciados equitativamente
+    y ordenados cronológicamente de la batería más vieja a la más nueva.
+    """
     if df_corner.empty:
         return go.Figure()
 
+    # Ordenar cronológicamente de vieja a nueva y generar índice de secuencia equidistante
     df_corner = df_corner.sort_values(by="Date", ascending=True).reset_index(
         drop=True
     )
@@ -250,6 +243,7 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
 
     fig = go.Figure()
 
+    # Desviación X (Línea Roja)
     fig.add_trace(
         go.Scatter(
             x=df_corner["Seq"],
@@ -260,13 +254,14 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
             marker=dict(size=4),
             customdata=df_corner[["PartID", "Date_Str", "CalendarWeek"]],
             hovertemplate=(
-                "<b>Battery #%{x}</b><br>PartID: %{customdata[0]}<br>Date:"
+                "<b>Batería #%{x}</b><br>PartID: %{customdata[0]}<br>Fecha:"
                 " %{customdata[1]}<br>CW: %{customdata[2]}<br>Dev X: %{y:.2f}"
                 " mm<extra></extra>"
             ),
         )
     )
 
+    # Desviación Y (Línea Verde)
     fig.add_trace(
         go.Scatter(
             x=df_corner["Seq"],
@@ -277,13 +272,14 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
             marker=dict(size=4),
             customdata=df_corner[["PartID", "Date_Str", "CalendarWeek"]],
             hovertemplate=(
-                "<b>Battery #%{x}</b><br>PartID: %{customdata[0]}<br>Date:"
+                "<b>Batería #%{x}</b><br>PartID: %{customdata[0]}<br>Fecha:"
                 " %{customdata[1]}<br>CW: %{customdata[2]}<br>Dev Y: %{y:.2f}"
                 " mm<extra></extra>"
             ),
         )
     )
 
+    # Línea de Umbral Superior (+Threshold)
     fig.add_hline(
         y=threshold_val,
         line_color="#D92B2B",
@@ -292,6 +288,7 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
         annotation_position="top right",
     )
 
+    # Línea de Umbral Inferior (-Threshold)
     fig.add_hline(
         y=-threshold_val,
         line_color="#D92B2B",
@@ -300,6 +297,7 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
         annotation_position="bottom right",
     )
 
+    # Formato visual limpio con eje X de secuencia
     fig.update_layout(
         title=dict(
             text=f"<b>{title_name}</b>",
@@ -308,12 +306,12 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
             font=dict(color="#D92B2B", size=13),
         ),
         xaxis=dict(
-            title="Battery # (Chronological Order)",
+            title="Batería # (Orden Cronológico)",
             showgrid=True,
             gridcolor="#E5E5E5",
         ),
         yaxis=dict(
-            title="Deviation (mm)",
+            title="Desviación (mm)",
             showgrid=True,
             gridcolor="#E5E5E5",
             zeroline=True,
@@ -333,6 +331,7 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
 
 
 def render_battery_corner_matrix(df_battery, battery_type_name, threshold_val):
+    """Renderiza la matriz física 2x2 para las 4 esquinas de la batería especificada."""
     st.subheader(f"🔋 {battery_type_name} Corner Deviation Trend (Sequential)")
 
     row1_col1, row1_col2 = st.columns(2)
@@ -377,7 +376,7 @@ def render_battery_corner_matrix(df_battery, battery_type_name, threshold_val):
 
 
 # ==============================================================================
-# MAIN APPLICATION
+# APLICACIÓN PRINCIPAL
 # ==============================================================================
 st.title("⚙️ Quality Control & Geometric Analysis Module")
 
@@ -389,27 +388,24 @@ spec_limit = st.sidebar.slider(
     "X/Y Specification Limit [±mm]", 1.0, 5.0, 3.0, 0.5
 )
 
-exclude_incomplete = st.sidebar.checkbox(
-    "Exclude incomplete measurements (< 4 corners) from Run count",
-    value=True,
+exclude_1_corner = st.sidebar.checkbox(
+    "Excluir baterías con solo 1 esquina desviada (Deformed)",
+    value=False,
     help=(
-        "If a measurement does not have all 4 corners completely measured, "
-        "it is marked as INCOMPLETE and assigned Run 0 without incrementing the run count. "
-        "The first 100% complete measurement will be designated as Run 1."
+        "Excluye del análisis y métricas (Summary, FPY, Trend) las baterías"
+        " que tienen exactamente 1 esquina fuera de tolerancia."
     ),
 )
 
-exclude_1_corner = st.sidebar.checkbox(
-    "Exclude batteries with exactly 1 deviated corner (Deformed)",
-    value=False,
-    help=(
-        "Excludes batteries with exactly 1 corner out of specification from "
-        "the analysis and overall metrics (Summary, FPY, Trend)."
-    ),
+# TOGGLE PARA MOSTRAR / OCULTAR LA MATRIZ 2X2
+show_corner_matrix = st.sidebar.toggle(
+    "Mostrar Matriz 2x2 por Esquinas",
+    value=True,
+    help="Activa o desactiva la visualización de las gráficas de tendencia 2x2 por esquina en la pestaña principal.",
 )
 
 uploaded_file = st.file_uploader(
-    "Upload raw CMM data file (Excel or CSV)", type=["xlsx", "xls", "csv"]
+    "Upload your raw data file (Excel or CSV)", type=["xlsx", "xls", "csv"]
 )
 
 if uploaded_file is not None:
@@ -490,10 +486,7 @@ if uploaded_file is not None:
         df_raw["CurrentRun"] = current_runs
 
         modules_data = []
-        grouped_runs = df_raw.groupby(["BaseKey", "CurrentRun"], sort=False)
-
-        # Independent counter for re-numbering complete runs
-        complete_run_tracker = {}
+        grouped_runs = df_raw.groupby(["BaseKey", "CurrentRun"])
 
         for (b_key, c_run), group in grouped_runs:
             first_row = group.iloc[0]
@@ -515,54 +508,26 @@ if uploaded_file is not None:
                 if c_idx in [1, 2, 3, 4]:
                     corners[c_idx] = (r_item["X_Val"], r_item["Y_Val"])
 
-            # Verify if all 4 corners are completely measured
-            is_complete = True
+            corners_out_of_spec = 0
             for c_idx in [1, 2, 3, 4]:
                 cx, cy = corners[c_idx]
-                if cx is None or cy is None or pd.isna(cx) or pd.isna(cy):
-                    is_complete = False
-                    break
+                if (
+                    cx is not None
+                    and cy is not None
+                    and not pd.isna(cx)
+                    and not pd.isna(cy)
+                ):
+                    if abs(cx) > spec_limit or abs(cy) > spec_limit:
+                        corners_out_of_spec += 1
 
-            if exclude_incomplete:
-                if is_complete:
-                    complete_run_tracker[b_key] = (
-                        complete_run_tracker.get(b_key, 0) + 1
-                    )
-                    assigned_run = complete_run_tracker[b_key]
-
-                    corners_out_of_spec = 0
-                    for c_idx in [1, 2, 3, 4]:
-                        cx, cy = corners[c_idx]
-                        if abs(cx) > spec_limit or abs(cy) > spec_limit:
-                            corners_out_of_spec += 1
-
-                    status = "FAIL" if corners_out_of_spec > 0 else "PASS"
-                else:
-                    assigned_run = 0  # 0 indicates incomplete measurement
-                    corners_out_of_spec = None
-                    status = "INCOMPLETE"
-            else:
-                assigned_run = c_run
-                corners_out_of_spec = 0
-                for c_idx in [1, 2, 3, 4]:
-                    cx, cy = corners[c_idx]
-                    if (
-                        cx is not None
-                        and cy is not None
-                        and not pd.isna(cx)
-                        and not pd.isna(cy)
-                    ):
-                        if abs(cx) > spec_limit or abs(cy) > spec_limit:
-                            corners_out_of_spec += 1
-
-                status = "FAIL" if corners_out_of_spec > 0 else "PASS"
+            status = "FAIL" if corners_out_of_spec > 0 else "PASS"
 
             modules_data.append({
                 "Date": full_dt,
                 "CalendarWeek": cal_week,
                 "PartID": p_val,
                 "BatteryType": bat_type,
-                "RunNum": assigned_run,
+                "RunNum": c_run,
                 "FL_X": corners[1][0],
                 "FL_Y": corners[1][1],
                 "FR_X": corners[2][0],
@@ -604,12 +569,12 @@ if uploaded_file is not None:
                 df_summary["CornersOutOfSpec"] != 1
             ].copy()
             st.sidebar.warning(
-                "⚠️ Excluding batteries with exactly 1 deviated corner."
+                "⚠️ Excluyendo baterías con exactamente 1 esquina desviada."
             )
         else:
             df_analysis = df_summary.copy()
 
-        # Analysis Tabs
+        # Pestañas de análisis
         tab1, tab2, tab3, tab4 = st.tabs([
             "📊 General Summary & FPY",
             "📈 Interactive Geometric Plot",
@@ -620,18 +585,10 @@ if uploaded_file is not None:
         with tab1:
             st.subheader("📋 First-Run Quality Summary")
 
-            if exclude_incomplete:
-                st.info(
-                    "ℹ️ **Incomplete Measurement Exclusion Active:** Measurements"
-                    " with incomplete parameters are marked as `INCOMPLETE`"
-                    " (Run 0) and excluded from the run counter. The first"
-                    " complete measurement is designated as `Run 1`."
-                )
-
             if exclude_1_corner:
                 st.info(
-                    "ℹ️ **Filter Active:** Batteries with exactly 1 deviated corner"
-                    " have been excluded from the analysis."
+                    "ℹ️ **Filtro activo:** Se han excluido del análisis las"
+                    " baterías que presentaron exactamente 1 esquina desviada."
                 )
 
             df_run1 = df_analysis[df_analysis["RunNum"] == 1]
@@ -775,67 +732,78 @@ if uploaded_file is not None:
                 style_report(df_analysis, spec_limit), use_container_width=True
             )
 
-            st.divider()
-            st.header(
-                "📈 Temporal Corner Deviation Trend Analysis (2x2 Matrix)"
-            )
-
-            corner_records = []
-            df_run1_only = df_analysis[df_analysis["RunNum"] == 1]
-
-            for _, row in df_run1_only.iterrows():
-                cw = row["CalendarWeek"]
-                b_type = row["BatteryType"]
-                dt = row["Date"]
-                p_id = row["PartID"]
-
-                corner_map = {
-                    "Front-Left": (row["FL_X"], row["FL_Y"]),
-                    "Front-Right": (row["FR_X"], row["FR_Y"]),
-                    "Rear-Left": (row["RL_X"], row["RL_Y"]),
-                    "Rear-Right": (row["RR_X"], row["RR_Y"]),
-                }
-
-                for c_name, (dx, dy) in corner_map.items():
-                    if pd.notna(dx) and pd.notna(dy):
-                        corner_records.append({
-                            "CalendarWeek": cw,
-                            "Date": dt,
-                            "PartID": p_id,
-                            "Battery_Type": b_type,
-                            "Corner": c_name,
-                            "Dev_X": dx,
-                            "Dev_Y": dy,
-                        })
-
-            df_corner_trends = pd.DataFrame(corner_records)
-
-            if not df_corner_trends.empty:
-                df_m_trend = df_corner_trends[
-                    df_corner_trends["Battery_Type"] == "Type M"
-                ]
-                if not df_m_trend.empty:
-                    render_battery_corner_matrix(
-                        df_m_trend, "Type M", spec_limit
-                    )
-                else:
-                    st.info("No records available for Type M.")
-
-                st.markdown("<br>", unsafe_allow_html=True)
-
-                df_s_trend = df_corner_trends[
-                    df_corner_trends["Battery_Type"] == "Type S"
-                ]
-                if not df_s_trend.empty:
-                    render_battery_corner_matrix(
-                        df_s_trend, "Type S", spec_limit
-                    )
-                else:
-                    st.info("No records available for Type S.")
-            else:
-                st.warning(
-                    "Insufficient corner data available to generate trend plots."
+            # ==============================================================================
+            # MATRIZ TEMPORAL 2X2 POR ESQUINA (SECUENCIA CRONOLÓGICA CON ESPACIADO HOMOGÉNEO)
+            # EVALUADA SEGÚN EL TOGGLE DE LA BARRA LATERAL
+            # ==============================================================================
+            if show_corner_matrix:
+                st.divider()
+                st.header(
+                    "📈 Análisis Temporal de Desviación por Esquinas (2x2 Matrix)"
                 )
+
+                corner_records = []
+
+                # 1. Filtrar solo Run 1 si es lo deseado
+                df_run1_only = df_analysis[df_analysis["RunNum"] == 1]
+
+                # 2. Iterar sobre las filas de df_run1_only
+                for _, row in df_run1_only.iterrows():
+                    cw = row["CalendarWeek"]
+                    b_type = row["BatteryType"]
+                    dt = row["Date"]
+                    p_id = row["PartID"]
+
+                    corner_map = {
+                        "Front-Left": (row["FL_X"], row["FL_Y"]),
+                        "Front-Right": (row["FR_X"], row["FR_Y"]),
+                        "Rear-Left": (row["RL_X"], row["RL_Y"]),
+                        "Rear-Right": (row["RR_X"], row["RR_Y"]),
+                    }
+
+                    for c_name, (dx, dy) in corner_map.items():
+                        if pd.notna(dx) and pd.notna(dy):
+                            corner_records.append({
+                                "CalendarWeek": cw,
+                                "Date": dt,
+                                "PartID": p_id,
+                                "Battery_Type": b_type,
+                                "Corner": c_name,
+                                "Dev_X": dx,
+                                "Dev_Y": dy,
+                            })
+
+                df_corner_trends = pd.DataFrame(corner_records)
+
+                if not df_corner_trends.empty:
+                    # 1. Type M
+                    df_m_trend = df_corner_trends[
+                        df_corner_trends["Battery_Type"] == "Type M"
+                    ]
+                    if not df_m_trend.empty:
+                        render_battery_corner_matrix(
+                            df_m_trend, "Type M", spec_limit
+                        )
+                    else:
+                        st.info("No hay registros disponibles para Type M.")
+
+                    st.markdown("<br>", unsafe_allow_html=True)
+
+                    # 2. Type S
+                    df_s_trend = df_corner_trends[
+                        df_corner_trends["Battery_Type"] == "Type S"
+                    ]
+                    if not df_s_trend.empty:
+                        render_battery_corner_matrix(
+                            df_s_trend, "Type S", spec_limit
+                        )
+                    else:
+                        st.info("No hay registros disponibles para Type S.")
+                else:
+                    st.warning(
+                        "No hay datos suficientes de esquinas para generar las"
+                        " gráficas de tendencia."
+                    )
 
         with tab2:
             st.subheader(
@@ -856,7 +824,7 @@ if uploaded_file is not None:
                         value=(default_start, default_end),
                         step=1,
                         help=(
-                            "Select a continuous section or range of batteries"
+                            "Select a continuous section/range of batteries"
                             " chronologically."
                         ),
                     )
@@ -867,7 +835,7 @@ if uploaded_file is not None:
                         max_value=20.0,
                         value=1.0,
                         step=0.5,
-                        help="Visually amplify deviations for clearer detection.",
+                        help="Visually amplify deviations.",
                     )
 
                 selected_mod = st.session_state["selected_mod_target"]
@@ -1060,47 +1028,16 @@ if uploaded_file is not None:
             st.subheader(
                 "📐 Advanced Squareness & Deformation Root Cause Analysis"
             )
-
-            if exclude_incomplete:
-                st.info(
-                    "ℹ️ **Incomplete Measurement Exclusion Active:** Measurements"
-                    " with incomplete parameters (< 4 corners) are marked as"
-                    " `INCOMPLETE` and excluded from this analysis."
-                )
-
             squareness_records = []
 
             for _, row in df_analysis.iterrows():
-                # Verify measurement completeness
-                has_missing_corners = (
+                if (
                     pd.isna(row["FL_X"])
                     or pd.isna(row["FR_X"])
                     or pd.isna(row["RL_X"])
                     or pd.isna(row["RR_X"])
-                    or row["Status"] == "INCOMPLETE"
-                )
-
-                if has_missing_corners:
-                    if exclude_incomplete:
-                        continue
-                    else:
-                        squareness_records.append({
-                            "Date": row["Date"],
-                            "PartID": row["PartID"],
-                            "RunNum": row["RunNum"],
-                            "BatteryType": row["BatteryType"],
-                            "Diag 1 [mm]": np.nan,
-                            "Diag 2 [mm]": np.nan,
-                            "Delta Diag [mm]": np.nan,
-                            "Width Delta [mm]": np.nan,
-                            "Length Delta [mm]": np.nan,
-                            "FL Angular Dev [°]": np.nan,
-                            "Squareness Status": "INCOMPLETE",
-                            "Root Cause Details": (
-                                "Incomplete measurement (< 4 corners)"
-                            ),
-                        })
-                        continue
+                ):
+                    continue
 
                 nom = get_nominal_coordinates(row["BatteryType"])
 
@@ -1233,7 +1170,7 @@ if uploaded_file is not None:
                         st.rerun()
             else:
                 st.info(
-                    "No complete 4-corner data available to calculate"
+                    "Not enough complete 4-corner data available to calculate"
                     " squareness."
                 )
 
@@ -1250,7 +1187,7 @@ if uploaded_file is not None:
                 ["FL_X", "FR_X", "RL_X", "RR_X"]
             ].mean(axis=1)
             df_vec["Centroid_Y"] = df_vec[
-                ["FL_X", "FR_X", "RL_X", "RR_X"]
+                ["FL_Y", "FR_Y", "RL_Y", "RR_Y"]
             ].mean(axis=1)
             df_vec["Vector_Magnitude"] = np.sqrt(
                 df_vec["Centroid_X"] ** 2 + df_vec["Centroid_Y"] ** 2
