@@ -16,10 +16,7 @@ if "selected_mod_target" not in st.session_state:
 
 
 def determine_battery_type(part_id: str, feature_names) -> str:
-    """Determina si la batería es Type M o Type S evaluando el PartID y el
-
-    conjunto completo de Features de la batería/corrida.
-    """
+    """Determina si la batería es Type M o Type S evaluando el PartID y el conjunto completo de Features."""
     p_id = str(part_id).upper().strip()
 
     if isinstance(feature_names, (list, set, pd.Series)):
@@ -197,6 +194,11 @@ def style_report(df, limit):
                         "background-color: #2eb82e; color: white; font-weight:"
                         " bold;"
                     )
+                elif str(row[col]) == "INCOMPLETE":
+                    styles[i] = (
+                        "background-color: #6b7280; color: white; font-weight:"
+                        " bold;"
+                    )
         return styles
 
     return df.style.apply(apply_styles, axis=1)
@@ -225,18 +227,10 @@ def style_squareness_report(df, diag_limit):
     return df.style.apply(apply_styles, axis=1)
 
 
-# ==============================================================================
-# FUNCIONES AUXILIARES: GENERACIÓN DE GRÁFICAS Y MATRIZ 2X2 POR ESQUINA
-# ==============================================================================
 def plot_corner_deviation(df_corner, title_name, threshold_val):
-    """Genera gráfica de tendencia con puntos espaciados equitativamente
-
-    y ordenados cronológicamente de la batería más vieja a la más nueva.
-    """
     if df_corner.empty:
         return go.Figure()
 
-    # Ordenar cronológicamente de vieja a nueva y generar índice de secuencia equidistante
     df_corner = df_corner.sort_values(by="Date", ascending=True).reset_index(
         drop=True
     )
@@ -245,7 +239,6 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
 
     fig = go.Figure()
 
-    # Desviación X (Línea Roja)
     fig.add_trace(
         go.Scatter(
             x=df_corner["Seq"],
@@ -263,7 +256,6 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
         )
     )
 
-    # Desviación Y (Línea Verde)
     fig.add_trace(
         go.Scatter(
             x=df_corner["Seq"],
@@ -281,7 +273,6 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
         )
     )
 
-    # Línea de Umbral Superior (+Threshold)
     fig.add_hline(
         y=threshold_val,
         line_color="#D92B2B",
@@ -290,7 +281,6 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
         annotation_position="top right",
     )
 
-    # Línea de Umbral Inferior (-Threshold)
     fig.add_hline(
         y=-threshold_val,
         line_color="#D92B2B",
@@ -299,7 +289,6 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
         annotation_position="bottom right",
     )
 
-    # Formato visual limpio con eje X de secuencia
     fig.update_layout(
         title=dict(
             text=f"<b>{title_name}</b>",
@@ -333,7 +322,6 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
 
 
 def render_battery_corner_matrix(df_battery, battery_type_name, threshold_val):
-    """Renderiza la matriz física 2x2 para las 4 esquinas de la batería especificada."""
     st.subheader(f"🔋 {battery_type_name} Corner Deviation Trend (Sequential)")
 
     row1_col1, row1_col2 = st.columns(2)
@@ -390,12 +378,12 @@ spec_limit = st.sidebar.slider(
     "X/Y Specification Limit [±mm]", 1.0, 5.0, 3.0, 0.5
 )
 
-exclude_1_corner = st.sidebar.checkbox(
-    "Excluir baterías con solo 1 esquina desviada (Deformed)",
+exclude_incomplete = st.sidebar.checkbox(
+    "Excluir mediciones incompletas (esquinas faltantes)",
     value=False,
     help=(
-        "Excluye del análisis y métricas (Summary, FPY, Trend) las baterías"
-        " que tienen exactamente 1 esquina fuera de tolerancia."
+        "Excluye del análisis y métricas (Summary, FPY, Trend) las corridas o"
+        " baterías que no tengan el conjunto completo de sus 4 esquinas."
     ),
 )
 
@@ -444,12 +432,10 @@ if uploaded_file is not None:
             lambda row: extract_corner_index(row[feat_col], row[part_col]),
             axis=1,
         )
-        df_raw["X_Val"] = pd.to_numeric(
-            df_raw[x_dev_col], errors="coerce"
-        ).fillna(0.0)
-        df_raw["Y_Val"] = pd.to_numeric(
-            df_raw[y_dev_col], errors="coerce"
-        ).fillna(0.0)
+
+        # MANTENER NaN EN LUGAR DE CONVERTIR A CERO
+        df_raw["X_Val"] = pd.to_numeric(df_raw[x_dev_col], errors="coerce")
+        df_raw["Y_Val"] = pd.to_numeric(df_raw[y_dev_col], errors="coerce")
 
         df_raw = df_raw.sort_values(by="ParsedDate").reset_index(drop=True)
 
@@ -492,10 +478,10 @@ if uploaded_file is not None:
             bat_type = determine_battery_type(p_val, group[feat_col])
 
             corners = {
-                1: (None, None),
-                2: (None, None),
-                3: (None, None),
-                4: (None, None),
+                1: (np.nan, np.nan),
+                2: (np.nan, np.nan),
+                3: (np.nan, np.nan),
+                4: (np.nan, np.nan),
             }
 
             for _, r_item in group.iterrows():
@@ -504,23 +490,30 @@ if uploaded_file is not None:
                     corners[c_idx] = (r_item["X_Val"], r_item["Y_Val"])
 
             corners_out_of_spec = 0
+            missing_corners = 0
+
             for c_idx in [1, 2, 3, 4]:
                 cx, cy = corners[c_idx]
-                if (
-                    cx is not None
-                    and cy is not None
-                    and not pd.isna(cx)
-                    and not pd.isna(cy)
-                ):
+                if pd.isna(cx) or pd.isna(cy):
+                    missing_corners += 1
+                else:
                     if abs(cx) > spec_limit or abs(cy) > spec_limit:
                         corners_out_of_spec += 1
 
-            status = "FAIL" if corners_out_of_spec > 0 else "PASS"
+            is_complete = missing_corners == 0
+
+            if not is_complete:
+                status = "INCOMPLETE"
+            elif corners_out_of_spec > 0:
+                status = "FAIL"
+            else:
+                status = "PASS"
 
             modules_data.append({
                 "Date": full_dt,
                 "CalendarWeek": cal_week,
                 "PartID": p_val,
+                "BaseKey": b_key,
                 "BatteryType": bat_type,
                 "RunNum": c_run,
                 "FL_X": corners[1][0],
@@ -532,12 +525,14 @@ if uploaded_file is not None:
                 "RR_X": corners[4][0],
                 "RR_Y": corners[4][1],
                 "CornersOutOfSpec": corners_out_of_spec,
+                "MissingCorners": missing_corners,
+                "IsComplete": is_complete,
                 "Status": status,
             })
 
         df_summary = pd.DataFrame(modules_data)
         df_summary = df_summary.sort_values(
-            by="Date", ascending=True
+            by=["Date", "RunNum"], ascending=True
         ).reset_index(drop=True)
 
         cols = [
@@ -555,19 +550,35 @@ if uploaded_file is not None:
             "RR_X",
             "RR_Y",
             "CornersOutOfSpec",
+            "MissingCorners",
+            "IsComplete",
             "Status",
         ]
         df_summary = df_summary[cols]
 
-        if exclude_1_corner:
-            df_analysis = df_summary[
-                df_summary["CornersOutOfSpec"] != 1
+        # SELECCIÓN DE LA PRIMERA CORRIDA COMPLETA POR BATERÍA
+        first_complete_records = []
+        for b_key, group in df_summary.groupby("PartID"):
+            complete_runs = group[group["IsComplete"] == True]
+            if not complete_runs.empty:
+                first_complete_records.append(complete_runs.iloc[0])
+            else:
+                first_complete_records.append(group.iloc[0])
+
+        df_first_complete = pd.DataFrame(first_complete_records)
+
+        # FILTRADO SEGÚN EL TOGGLE
+        if exclude_incomplete:
+            df_analysis = df_summary[df_summary["IsComplete"] == True].copy()
+            df_first_valid = df_first_complete[
+                df_first_complete["IsComplete"] == True
             ].copy()
             st.sidebar.warning(
-                "⚠️ Excluyendo baterías con exactamente 1 esquina desviada."
+                "⚠️ Excluyendo corridas/mediciones incompletas."
             )
         else:
             df_analysis = df_summary.copy()
+            df_first_valid = df_first_complete.copy()
 
         # Pestañas de análisis
         tab1, tab2, tab3, tab4 = st.tabs([
@@ -578,31 +589,39 @@ if uploaded_file is not None:
         ])
 
         with tab1:
-            st.subheader("📋 First-Run Quality Summary")
+            st.subheader("📋 First Complete Measurement Quality Summary")
 
-            if exclude_1_corner:
+            if exclude_incomplete:
                 st.info(
                     "ℹ️ **Filtro activo:** Se han excluido del análisis las"
-                    " baterías que presentaron exactamente 1 esquina desviada."
+                    " corridas incompletas."
                 )
 
-            df_run1 = df_analysis[df_analysis["RunNum"] == 1]
-            total_run1 = len(df_run1)
-            passed_run1 = len(df_run1[df_run1["Status"] == "PASS"])
-            failed_run1 = len(df_run1[df_run1["Status"] == "FAIL"])
-            fpy_val = (passed_run1 / total_run1 * 100) if total_run1 > 0 else 0
+            total_valid_modules = len(df_first_valid)
+            passed_valid = len(df_first_valid[df_first_valid["Status"] == "PASS"])
+            failed_valid = len(df_first_valid[df_first_valid["Status"] == "FAIL"])
+            incomplete_valid = len(
+                df_first_valid[df_first_valid["Status"] == "INCOMPLETE"]
+            )
+            fpy_val = (
+                (passed_valid / total_valid_modules * 100)
+                if total_valid_modules > 0
+                else 0
+            )
 
             summary_table_data = {
                 "Metric": [
-                    "Unique Modules (Run 1)",
-                    "Passed First-Run (OK)",
-                    "Failed First-Run (NOK)",
+                    "Unique Modules Evaluated",
+                    "Passed First Complete Run (OK)",
+                    "Failed First Complete Run (NOK)",
+                    "Incomplete Measurements",
                     "First-Pass Yield (FPY)",
                 ],
                 "Value": [
-                    total_run1,
-                    passed_run1,
-                    failed_run1,
+                    total_valid_modules,
+                    passed_valid,
+                    failed_valid,
+                    incomplete_valid,
                     f"{fpy_val:.1f}%",
                 ],
             }
@@ -619,8 +638,8 @@ if uploaded_file is not None:
 
             with col_t2:
                 st.markdown("##### WEEKLY FIRST-PASS YIELD TREND")
-                if not df_run1.empty:
-                    weekly_group = df_run1.groupby("CalendarWeek")
+                if not df_first_valid.empty:
+                    weekly_group = df_first_valid.groupby("CalendarWeek")
                     weekly_data = []
                     for w, w_group in weekly_group:
                         w_total = len(w_group)
@@ -695,13 +714,11 @@ if uploaded_file is not None:
                     )
                     st.plotly_chart(fig_weekly, use_container_width=True)
                 else:
-                    st.info(
-                        "No Run 1 data available to generate the weekly trend."
-                    )
+                    st.info("No data available to generate the weekly trend.")
 
             st.markdown("---")
             st.markdown("##### 📅 WEEKLY PASS RATE & BREAKDOWN TABLE")
-            if not df_run1.empty:
+            if not df_first_valid.empty:
                 df_weekly_display = df_weekly[
                     ["CalendarWeek", "Total", "Passed", "Failed", "PassRate"]
                 ].copy()
@@ -727,21 +744,11 @@ if uploaded_file is not None:
                 style_report(df_analysis, spec_limit), use_container_width=True
             )
 
-# ==============================================================================
-            # MATRIZ TEMPORAL 2X2 POR ESQUINA (SECUENCIA CRONOLÓGICA CON ESPACIADO HOMOGÉNEO)
-            # ==============================================================================
             st.divider()
-            st.header(
-                "📈 Análisis Temporal de Desviación por Esquinas (2x2 Matrix)"
-            )
+            st.header("📈 Análisis Temporal de Desviación por Esquinas (2x2 Matrix)")
 
             corner_records = []
-
-            # 1. Filtrar solo Run 1 si es lo deseado
-            df_run1_only = df_analysis[df_analysis["RunNum"] == 1]
-
-            # 2. Iterar sobre las filas de df_run1_only (en lugar de df_analysis completo)
-            for _, row in df_run1_only.iterrows():
+            for _, row in df_first_valid.iterrows():
                 cw = row["CalendarWeek"]
                 b_type = row["BatteryType"]
                 dt = row["Date"]
@@ -769,7 +776,6 @@ if uploaded_file is not None:
             df_corner_trends = pd.DataFrame(corner_records)
 
             if not df_corner_trends.empty:
-                # 1. Type M
                 df_m_trend = df_corner_trends[
                     df_corner_trends["Battery_Type"] == "Type M"
                 ]
@@ -782,7 +788,6 @@ if uploaded_file is not None:
 
                 st.markdown("<br>", unsafe_allow_html=True)
 
-                # 2. Type S
                 df_s_trend = df_corner_trends[
                     df_corner_trends["Battery_Type"] == "Type S"
                 ]
@@ -794,8 +799,8 @@ if uploaded_file is not None:
                     st.info("No hay registros disponibles para Type S.")
             else:
                 st.warning(
-                    "No hay datos suficientes de esquinas para generar las"
-                    " gráficas de tendencia."
+                    "No hay datos suficientes de esquinas completas para"
+                    " generar las gráficas de tendencia."
                 )
 
         with tab2:
@@ -816,10 +821,6 @@ if uploaded_file is not None:
                         max_value=max(0, total_mods - 1),
                         value=(default_start, default_end),
                         step=1,
-                        help=(
-                            "Select a continuous section/range of batteries"
-                            " chronologically."
-                        ),
                     )
                 with col_ctrl2:
                     exaggeration = st.slider(
@@ -828,7 +829,6 @@ if uploaded_file is not None:
                         max_value=20.0,
                         value=1.0,
                         step=0.5,
-                        help="Visually amplify deviations.",
                     )
 
                 selected_mod = st.session_state["selected_mod_target"]
@@ -842,28 +842,6 @@ if uploaded_file is not None:
                 df_to_plot = df_analysis.iloc[
                     start_idx : end_idx + 1
                 ].copy()
-
-                if selected_mod != "--- None / All ---":
-                    target_row = None
-                    for _, r in df_analysis.iterrows():
-                        mod_id = f"{r['PartID']} | Run {r['RunNum']} | {str(r['Date'])[:10]}"
-                        if mod_id == selected_mod:
-                            target_row = r
-                            break
-                    if target_row is not None:
-                        in_plot = any(
-                            f"{r['PartID']} | Run {r['RunNum']} | {str(r['Date'])[:10]}"
-                            == selected_mod
-                            for _, r in df_to_plot.iterrows()
-                        )
-                        if not in_plot:
-                            df_to_plot = (
-                                pd.concat(
-                                    [df_to_plot, pd.DataFrame([target_row])]
-                                )
-                                .drop_duplicates()
-                                .reset_index(drop=True)
-                            )
 
                 fig = go.Figure()
 
@@ -919,11 +897,6 @@ if uploaded_file is not None:
                                     dash="dot",
                                 ),
                                 showlegend=False,
-                                hovertemplate=(
-                                    f"<b>Tolerance Zone:</b> ±{spec_limit}mm"
-                                    f" (Scaled {exaggeration}x)<br><b>Corner:</b>"
-                                    f" {c_name} ({b_type})<extra></extra>"
-                                ),
                             )
                         )
 
@@ -982,15 +955,6 @@ if uploaded_file is not None:
                             line=dict(color=color, width=width),
                             marker=dict(size=6 if is_targeted else 4),
                             opacity=opacity,
-                            hovertemplate=(
-                                f"<b>PartID:</b> {row['PartID']}<br><b>Run:</b>"
-                                f" {row['RunNum']}<br><b>Status:</b>"
-                                f" {status}<br><b>NOK Corners:</b>"
-                                f" {row['CornersOutOfSpec']}<br><b>Type:</b>"
-                                f" {row['BatteryType']}<br><b>Exaggeration:</b>"
-                                f" {exaggeration}x<br><b>Date:</b>"
-                                f" {row['Date']}<extra></extra>"
-                            ),
                         )
                     )
 
@@ -998,19 +962,7 @@ if uploaded_file is not None:
                     xaxis_title="Global X Axis [mm]",
                     yaxis_title="Global Y Axis [mm]",
                     height=700,
-                    title=(
-                        f"Actual Geometry & Permanent Tolerance Zones (Indices"
-                        f" {start_idx} to {end_idx}, Exaggeration"
-                        f" {exaggeration}x)"
-                    ),
                     yaxis=dict(scaleanchor="x", scaleratio=1),
-                    legend=dict(
-                        orientation="v",
-                        yanchor="top",
-                        y=1,
-                        xanchor="left",
-                        x=1.02,
-                    ),
                 )
 
                 st.plotly_chart(fig, use_container_width=True)
@@ -1129,22 +1081,6 @@ if uploaded_file is not None:
 
             df_squareness = pd.DataFrame(squareness_records)
             if not df_squareness.empty:
-                st.markdown(
-                    "💡 **Selection Tip:** **Click on any row in the"
-                    " table** to select and automatically highlight it in"
-                    " bright cyan in the *Interactive Plot (Tab 2)*."
-                )
-
-                if (
-                    st.session_state["selected_mod_target"]
-                    != "--- None / All ---"
-                ):
-                    if st.button("🔄 Clear Current Selection"):
-                        st.session_state["selected_mod_target"] = (
-                            "--- None / All ---"
-                        )
-                        st.rerun()
-
                 event = st.dataframe(
                     style_squareness_report(df_squareness, max_diag_tol),
                     use_container_width=True,
@@ -1169,11 +1105,6 @@ if uploaded_file is not None:
 
         with tab4:
             st.subheader("🧭 Vector Drift, Conveyor Tuning & Rotation Analysis")
-            st.markdown(
-                "Analyze the directional drift of module centroids and evaluate"
-                " both mechanical conveyor translation and incoming angular"
-                " rotation (yaw) over time."
-            )
 
             df_vec = df_analysis.copy()
             df_vec["Centroid_X"] = df_vec[
@@ -1185,9 +1116,6 @@ if uploaded_file is not None:
             df_vec["Vector_Magnitude"] = np.sqrt(
                 df_vec["Centroid_X"] ** 2 + df_vec["Centroid_Y"] ** 2
             )
-            df_vec["Vector_Angle"] = np.degrees(
-                np.arctan2(df_vec["Centroid_Y"], df_vec["Centroid_X"])
-            )
 
             rotation_list = []
             for _, row in df_vec.iterrows():
@@ -1197,7 +1125,7 @@ if uploaded_file is not None:
                     or pd.isna(row["RL_X"])
                     or pd.isna(row["RR_X"])
                 ):
-                    rotation_list.append(0.0)
+                    rotation_list.append(np.nan)
                     continue
                 nom = get_nominal_coordinates(row["BatteryType"])
                 f_nom_x = (nom["FL_X"] + nom["FR_X"]) / 2
@@ -1230,7 +1158,6 @@ if uploaded_file is not None:
                 rotation_list.append(diff_angle)
 
             df_vec["Rotation_Angle"] = rotation_list
-
             df_vec["WeekNum"] = (
                 df_vec["CalendarWeek"]
                 .str.replace("CW", "", regex=False)
@@ -1242,7 +1169,6 @@ if uploaded_file is not None:
             with col_v1:
                 st.markdown("##### 📍 Centroid Trajectory (Global X-Y Drift)")
                 fig_drift = go.Figure()
-
                 fig_drift.add_trace(
                     go.Scatter(
                         x=[0],
@@ -1254,7 +1180,6 @@ if uploaded_file is not None:
                         name="Nominal Center",
                     )
                 )
-
                 fig_drift.add_trace(
                     go.Scatter(
                         x=df_vec["Centroid_X"],
@@ -1268,63 +1193,14 @@ if uploaded_file is not None:
                             colorbar=dict(title="Week (CW)", len=0.8, x=1.15),
                         ),
                         line=dict(color="rgba(100,100,100,0.5)", width=1.5),
-                        text=df_vec["CalendarWeek"]
-                        + " | "
-                        + df_vec["PartID"]
-                        + " | Run "
-                        + df_vec["RunNum"].astype(str),
-                        hovertemplate=(
-                            "<b>PartID:</b> %{text}<br><b>Week:</b>"
-                            " CW%{marker.color}<br><b>Centroid X:</b>"
-                            " %{x:.2f} mm<br><b>Centroid Y:</b> %{y:.2f}"
-                            " mm<extra></extra>"
-                        ),
                         name="Centroid Path",
                     )
                 )
-
-                fig_drift.add_annotation(
-                    x=0,
-                    y=2.8,
-                    text="▲ +Y (Right)",
-                    showarrow=False,
-                    font=dict(size=10, color="#94a3b8"),
-                )
-                fig_drift.add_annotation(
-                    x=0,
-                    y=-2.8,
-                    text="▼ -Y (Left)",
-                    showarrow=False,
-                    font=dict(size=10, color="#94a3b8"),
-                )
-                fig_drift.add_annotation(
-                    x=4.2,
-                    y=0,
-                    text="+X (Back) ▶",
-                    showarrow=False,
-                    font=dict(size=10, color="#94a3b8"),
-                )
-                fig_drift.add_annotation(
-                    x=-4.2,
-                    y=0,
-                    text="◀ -X (Front)",
-                    showarrow=False,
-                    font=dict(size=10, color="#94a3b8"),
-                )
-
                 fig_drift.update_layout(
                     xaxis_title="Mean X Deviation [mm]",
                     yaxis_title="Mean Y Deviation [mm]",
                     height=500,
-                    margin=dict(l=30, r=130, t=50, b=30),
                     yaxis=dict(scaleanchor="x", scaleratio=1),
-                    legend=dict(
-                        orientation="h",
-                        yanchor="bottom",
-                        y=1.08,
-                        xanchor="left",
-                        x=0,
-                    ),
                 )
                 st.plotly_chart(fig_drift, use_container_width=True)
 
@@ -1353,52 +1229,8 @@ if uploaded_file is not None:
                     yaxis=dict(title="Mean Magnitude R (mm)"),
                     xaxis=dict(title="Week"),
                     height=500,
-                    margin=dict(l=20, r=20, t=30, b=20),
                 )
                 st.plotly_chart(fig_mag, use_container_width=True)
-
-            st.markdown("---")
-            st.markdown(
-                "##### 🔄 Incoming Module Rotation (Yaw Angle Δθ) Trend"
-            )
-
-            fig_rot = go.Figure()
-            fig_rot.add_trace(
-                go.Scatter(
-                    x=df_vec["Date"],
-                    y=df_vec["Rotation_Angle"],
-                    mode="markers+lines",
-                    name="Yaw Rotation [°]",
-                    marker=dict(
-                        size=8,
-                        color=df_vec["Rotation_Angle"].abs(),
-                        colorscale="Tealgrn",
-                        showscale=True,
-                        colorbar=dict(title="|Rotation| [°]", len=0.8, x=1.02),
-                    ),
-                    line=dict(color="#0f766e", width=1.5),
-                    hovertemplate=(
-                        "<b>PartID:</b> %{text}<br><b>Date:</b>"
-                        " %{x}<br><b>Rotation Angle:</b> %{y:.2f}°<extra></extra>"
-                    ),
-                    text=df_vec["PartID"]
-                    + " | Run "
-                    + df_vec["RunNum"].astype(str),
-                )
-            )
-            fig_rot.add_hline(
-                y=0,
-                line_dash="dash",
-                line_color="#94a3b8",
-                annotation_text="Perfect Alignment (0°)",
-            )
-            fig_rot.update_layout(
-                xaxis_title="Date & Time",
-                yaxis_title="Rotation Angle Δθ [°]",
-                height=400,
-                margin=dict(l=20, r=80, t=30, b=20),
-            )
-            st.plotly_chart(fig_rot, use_container_width=True)
 
             st.markdown("---")
             st.markdown("##### 📋 Vector & Rotation Summary Table")
@@ -1424,20 +1256,10 @@ if uploaded_file is not None:
                 "Yaw Rotation [°]",
                 "Status",
             ]
-            df_vec_display["Centroid X [mm]"] = df_vec_display[
-                "Centroid X [mm]"
-            ].round(2)
-            df_vec_display["Centroid Y [mm]"] = df_vec_display[
-                "Centroid Y [mm]"
-            ].round(2)
-            df_vec_display["Magnitude R [mm]"] = df_vec_display[
-                "Magnitude R [mm]"
-            ].round(2)
-            df_vec_display["Yaw Rotation [°]"] = df_vec_display[
-                "Yaw Rotation [°]"
-            ].round(2)
             st.dataframe(
-                df_vec_display, hide_index=True, use_container_width=True
+                df_vec_display.round(2),
+                hide_index=True,
+                use_container_width=True,
             )
 
         st.markdown("---")
