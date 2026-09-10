@@ -16,7 +16,7 @@ if "selected_mod_target" not in st.session_state:
 
 
 def determine_battery_type(part_id: str, feature_names) -> str:
-    """Determina si la batería es Type M o Type S evaluando el PartID y el conjunto completo de Features."""
+    """Determines whether the battery is Type M or Type S by evaluating PartID and feature set."""
     p_id = str(part_id).upper().strip()
 
     if isinstance(feature_names, (list, set, pd.Series)):
@@ -249,7 +249,7 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
             marker=dict(size=4),
             customdata=df_corner[["PartID", "Date_Str", "CalendarWeek"]],
             hovertemplate=(
-                "<b>Batería #%{x}</b><br>PartID: %{customdata[0]}<br>Fecha:"
+                "<b>Battery #%{x}</b><br>PartID: %{customdata[0]}<br>Date:"
                 " %{customdata[1]}<br>CW: %{customdata[2]}<br>Dev X: %{y:.2f}"
                 " mm<extra></extra>"
             ),
@@ -266,7 +266,7 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
             marker=dict(size=4),
             customdata=df_corner[["PartID", "Date_Str", "CalendarWeek"]],
             hovertemplate=(
-                "<b>Batería #%{x}</b><br>PartID: %{customdata[0]}<br>Fecha:"
+                "<b>Battery #%{x}</b><br>PartID: %{customdata[0]}<br>Date:"
                 " %{customdata[1]}<br>CW: %{customdata[2]}<br>Dev Y: %{y:.2f}"
                 " mm<extra></extra>"
             ),
@@ -297,12 +297,12 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
             font=dict(color="#D92B2B", size=13),
         ),
         xaxis=dict(
-            title="Batería # (Orden Cronológico)",
+            title="Battery # (Chronological Order)",
             showgrid=True,
             gridcolor="#E5E5E5",
         ),
         yaxis=dict(
-            title="Desviación (mm)",
+            title="Deviation (mm)",
             showgrid=True,
             gridcolor="#E5E5E5",
             zeroline=True,
@@ -366,7 +366,7 @@ def render_battery_corner_matrix(df_battery, battery_type_name, threshold_val):
 
 
 # ==============================================================================
-# APLICACIÓN PRINCIPAL
+# MAIN APPLICATION
 # ==============================================================================
 st.title("⚙️ Quality Control & Geometric Analysis Module")
 
@@ -379,12 +379,12 @@ spec_limit = st.sidebar.slider(
 )
 
 exclude_incomplete = st.sidebar.checkbox(
-    "Excluir mediciones incompletas (esquinas faltantes)",
+    "Exclude incomplete measurements (missing corners)",
     value=False,
     help=(
-        "Desactivado (por defecto): Evalúa la primera corrida estricta (Run 1) contabilizando "
-        "las mediciones incompletas en el FPY y los KPI.\n"
-        "Activado: Purga las mediciones incompletas y busca la primera corrida 100% completa."
+        "Disabled (default): Evaluates strict first run (Run 1) accounting "
+        "for incomplete measurements in FPY and KPIs.\n"
+        "Enabled: Purges incomplete measurements and searches for the first 100% complete run."
     ),
 )
 
@@ -557,7 +557,7 @@ if uploaded_file is not None:
         df_summary = df_summary[cols]
 
         # ==============================================================================
-        # DINÁMICA DE DATASETS Y TOGGLE
+        # DATASET DYNAMICS AND TOGGLES
         # ==============================================================================
         if exclude_incomplete:
             df_analysis = df_summary[df_summary["IsComplete"] == True].copy()
@@ -574,8 +574,8 @@ if uploaded_file is not None:
                 else pd.DataFrame(columns=df_summary.columns)
             )
             st.sidebar.warning(
-                "⚠️ **Modo Filtrado:** Excluyendo mediciones incompletas de KPI"
-                " y gráficos."
+                "⚠️ **Filtered Mode:** Excluding incomplete measurements from KPIs"
+                " and plots."
             )
         else:
             df_analysis = df_summary.copy()
@@ -594,7 +594,7 @@ if uploaded_file is not None:
                 else pd.DataFrame(columns=df_summary.columns)
             )
 
-        # Clave interna estandarizada para cruce exacto entre pestañas
+        # Standardized internal key for exact cross-tab matching
         df_analysis["_mod_key"] = (
             df_analysis["PartID"].astype(str)
             + " | Run "
@@ -603,7 +603,7 @@ if uploaded_file is not None:
             + pd.to_datetime(df_analysis["Date"]).dt.strftime("%Y-%m-%d")
         )
 
-        # Pestañas de análisis
+        # Analysis Tabs
         tab1, tab2, tab3, tab4 = st.tabs([
             "📊 General Summary & FPY",
             "📈 Interactive Geometric Plot",
@@ -616,14 +616,14 @@ if uploaded_file is not None:
 
             if exclude_incomplete:
                 st.info(
-                    "ℹ️ **Filtro activo:** Evaluando únicamente baterías con"
-                    " **mediciones completas (4 esquinas)**."
+                    "ℹ️ **Active Filter:** Evaluating only batteries with"
+                    " **complete 4-corner measurements**."
                 )
             else:
                 st.warning(
-                    "⚠️ **Modo Estricto:** Evaluando **Corrida #1**."
-                    " Las mediciones incompletas se contabilizan como"
-                    " 'INCOMPLETE' afectando el FPY real."
+                    "⚠️ **Strict Mode:** Evaluating **Run #1**."
+                    " Incomplete measurements are classified as"
+                    " 'INCOMPLETE', impacting actual FPY."
                 )
 
             total_valid_modules = len(df_first_valid)
@@ -809,7 +809,7 @@ if uploaded_file is not None:
             )
 
             st.divider()
-            st.header("📈 Análisis Temporal de Desviación por Esquinas (2x2 Matrix)")
+            st.header("📈 Corner Deviation Time Series Analysis (2x2 Matrix)")
 
             corner_records = []
             for _, row in df_first_valid.iterrows():
@@ -848,7 +848,7 @@ if uploaded_file is not None:
                         df_m_trend, "Type M", spec_limit
                     )
                 else:
-                    st.info("No hay registros disponibles para Type M.")
+                    st.info("No records available for Type M.")
 
                 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -860,11 +860,10 @@ if uploaded_file is not None:
                         df_s_trend, "Type S", spec_limit
                     )
                 else:
-                    st.info("No hay registros disponibles para Type S.")
+                    st.info("No records available for Type S.")
             else:
                 st.warning(
-                    "No hay datos suficientes de esquinas completas para"
-                    " generar las gráficas de tendencia."
+                    "Insufficient complete 4-corner data to generate trend plots."
                 )
 
         with tab2:
@@ -900,7 +899,7 @@ if uploaded_file is not None:
                 start_idx, end_idx = selected_range
                 df_to_plot = df_analysis.iloc[start_idx : end_idx + 1].copy()
 
-                # Fuerza la inclusión del módulo seleccionado si está fuera del rango del slider
+                # Force inclusion of the selected module if outside current slider window
                 if selected_mod != "--- None / All ---":
                     st.info(
                         f"🔍 **Module selected for plot focus:**"
