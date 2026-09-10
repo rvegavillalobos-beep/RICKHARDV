@@ -727,16 +727,21 @@ if uploaded_file is not None:
                 style_report(df_analysis, spec_limit), use_container_width=True
             )
 
-            # ==============================================================================
+# ==============================================================================
             # MATRIZ TEMPORAL 2X2 POR ESQUINA (SECUENCIA CRONOLÓGICA CON ESPACIADO HOMOGÉNEO)
             # ==============================================================================
             st.divider()
-            st.header("📈 Análisis Temporal de Desviación por Esquinas (2x2 Matrix)")
+            st.header(
+                "📈 Análisis Temporal de Desviación por Esquinas (2x2 Matrix)"
+            )
 
             corner_records = []
-df_run1_only = df_analysis[df_analysis["RunNum"] == 1]
 
-for _, row in df_run1_only.iterrows():
+            # 1. Filtrar solo Run 1 si es lo deseado
+            df_run1_only = df_analysis[df_analysis["RunNum"] == 1]
+
+            # 2. Iterar sobre las filas de df_run1_only (en lugar de df_analysis completo)
+            for _, row in df_run1_only.iterrows():
                 cw = row["CalendarWeek"]
                 b_type = row["BatteryType"]
                 dt = row["Date"]
