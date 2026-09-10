@@ -16,8 +16,8 @@ if "selected_mod_target" not in st.session_state:
 
 
 def determine_battery_type(part_id: str, feature_names) -> str:
-    """Determina si la batería es Type M o Type S evaluando el PartID y el
-    conjunto completo de Features de la batería/corrida.
+    """Determines whether the battery is Type M or Type S by evaluating
+    the PartID and the full feature set of the battery/run.
     """
     p_id = str(part_id).upper().strip()
 
@@ -230,7 +230,7 @@ def style_squareness_report(df, diag_limit):
 
 
 # ==============================================================================
-# FUNCIONES AUXILIARES: GENERACIÓN DE GRÁFICAS Y MATRIZ 2X2 POR ESQUINA
+# HELPER FUNCTIONS: CHART GENERATION & 2X2 CORNER MATRIX
 # ==============================================================================
 def plot_corner_deviation(df_corner, title_name, threshold_val):
     if df_corner.empty:
@@ -254,7 +254,7 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
             marker=dict(size=4),
             customdata=df_corner[["PartID", "Date_Str", "CalendarWeek"]],
             hovertemplate=(
-                "<b>Batería #%{x}</b><br>PartID: %{customdata[0]}<br>Fecha:"
+                "<b>Battery #%{x}</b><br>PartID: %{customdata[0]}<br>Date:"
                 " %{customdata[1]}<br>CW: %{customdata[2]}<br>Dev X: %{y:.2f}"
                 " mm<extra></extra>"
             ),
@@ -271,7 +271,7 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
             marker=dict(size=4),
             customdata=df_corner[["PartID", "Date_Str", "CalendarWeek"]],
             hovertemplate=(
-                "<b>Batería #%{x}</b><br>PartID: %{customdata[0]}<br>Fecha:"
+                "<b>Battery #%{x}</b><br>PartID: %{customdata[0]}<br>Date:"
                 " %{customdata[1]}<br>CW: %{customdata[2]}<br>Dev Y: %{y:.2f}"
                 " mm<extra></extra>"
             ),
@@ -302,12 +302,12 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
             font=dict(color="#D92B2B", size=13),
         ),
         xaxis=dict(
-            title="Batería # (Orden Cronológico)",
+            title="Battery # (Chronological Order)",
             showgrid=True,
             gridcolor="#E5E5E5",
         ),
         yaxis=dict(
-            title="Desviación (mm)",
+            title="Deviation (mm)",
             showgrid=True,
             gridcolor="#E5E5E5",
             zeroline=True,
@@ -371,7 +371,7 @@ def render_battery_corner_matrix(df_battery, battery_type_name, threshold_val):
 
 
 # ==============================================================================
-# APLICACIÓN PRINCIPAL
+# MAIN APPLICATION
 # ==============================================================================
 st.title("⚙️ Quality Control & Geometric Analysis Module")
 
@@ -384,26 +384,26 @@ spec_limit = st.sidebar.slider(
 )
 
 exclude_incomplete = st.sidebar.checkbox(
-    "Excluir mediciones incompletas (< 4 esquinas) del conteo de Runs",
+    "Exclude incomplete measurements (< 4 corners) from Run count",
     value=True,
     help=(
-        "Si una medición no cuenta con las 4 esquinas medidas completamente, "
-        "se marca como INCOMPLETE y no suma a la numeración de Run. La primera "
-        "medición 100% completa se contará como Run 1."
+        "If a measurement does not have all 4 corners completely measured, "
+        "it is marked as INCOMPLETE and assigned Run 0 without incrementing the run count. "
+        "The first 100% complete measurement will be designated as Run 1."
     ),
 )
 
 exclude_1_corner = st.sidebar.checkbox(
-    "Excluir baterías con solo 1 esquina desviada (Deformed)",
+    "Exclude batteries with exactly 1 deviated corner (Deformed)",
     value=False,
     help=(
-        "Excluye del análisis y métricas (Summary, FPY, Trend) las baterías"
-        " que tienen exactamente 1 esquina fuera de tolerancia."
+        "Excludes batteries with exactly 1 corner out of specification from "
+        "the analysis and overall metrics (Summary, FPY, Trend)."
     ),
 )
 
 uploaded_file = st.file_uploader(
-    "Upload your raw data file (Excel or CSV)", type=["xlsx", "xls", "csv"]
+    "Upload raw CMM data file (Excel or CSV)", type=["xlsx", "xls", "csv"]
 )
 
 if uploaded_file is not None:
@@ -486,7 +486,7 @@ if uploaded_file is not None:
         modules_data = []
         grouped_runs = df_raw.groupby(["BaseKey", "CurrentRun"], sort=False)
 
-        # Contador independiente para re-numerar corridas completas
+        # Independent counter for re-numbering complete runs
         complete_run_tracker = {}
 
         for (b_key, c_run), group in grouped_runs:
@@ -509,7 +509,7 @@ if uploaded_file is not None:
                 if c_idx in [1, 2, 3, 4]:
                     corners[c_idx] = (r_item["X_Val"], r_item["Y_Val"])
 
-            # Comprobar si las 4 esquinas están completamente medidas
+            # Verify if all 4 corners are completely measured
             is_complete = True
             for c_idx in [1, 2, 3, 4]:
                 cx, cy = corners[c_idx]
@@ -532,7 +532,7 @@ if uploaded_file is not None:
 
                     status = "FAIL" if corners_out_of_spec > 0 else "PASS"
                 else:
-                    assigned_run = 0  # 0 indica medición incompleta
+                    assigned_run = 0  # 0 indicates incomplete measurement
                     corners_out_of_spec = None
                     status = "INCOMPLETE"
             else:
@@ -598,12 +598,12 @@ if uploaded_file is not None:
                 df_summary["CornersOutOfSpec"] != 1
             ].copy()
             st.sidebar.warning(
-                "⚠️ Excluyendo baterías con exactamente 1 esquina desviada."
+                "⚠️ Excluding batteries with exactly 1 deviated corner."
             )
         else:
             df_analysis = df_summary.copy()
 
-        # Pestañas de análisis
+        # Analysis Tabs
         tab1, tab2, tab3, tab4 = st.tabs([
             "📊 General Summary & FPY",
             "📈 Interactive Geometric Plot",
@@ -616,16 +616,16 @@ if uploaded_file is not None:
 
             if exclude_incomplete:
                 st.info(
-                    "ℹ️ **Exclusión de Incompletas activa:** Las mediciones"
-                    " con parámetros vacíos están marcadas como `INCOMPLETE`"
-                    " (Run 0) y no entran en el conteo de Runs. La primera"
-                    " medición completa es `Run 1`."
+                    "ℹ️ **Incomplete Measurement Exclusion Active:** Measurements"
+                    " with incomplete parameters are marked as `INCOMPLETE`"
+                    " (Run 0) and excluded from the run counter. The first"
+                    " complete measurement is designated as `Run 1`."
                 )
 
             if exclude_1_corner:
                 st.info(
-                    "ℹ️ **Filtro activo:** Se han excluido del análisis las"
-                    " baterías que presentaron exactamente 1 esquina desviada."
+                    "ℹ️ **Filter Active:** Batteries with exactly 1 deviated corner"
+                    " have been excluded from the analysis."
                 )
 
             df_run1 = df_analysis[df_analysis["RunNum"] == 1]
@@ -771,7 +771,7 @@ if uploaded_file is not None:
 
             st.divider()
             st.header(
-                "📈 Análisis Temporal de Desviación por Esquinas (2x2 Matrix)"
+                "📈 Temporal Corner Deviation Trend Analysis (2x2 Matrix)"
             )
 
             corner_records = []
@@ -813,7 +813,7 @@ if uploaded_file is not None:
                         df_m_trend, "Type M", spec_limit
                     )
                 else:
-                    st.info("No hay registros disponibles para Type M.")
+                    st.info("No records available for Type M.")
 
                 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -825,11 +825,10 @@ if uploaded_file is not None:
                         df_s_trend, "Type S", spec_limit
                     )
                 else:
-                    st.info("No hay registros disponibles para Type S.")
+                    st.info("No records available for Type S.")
             else:
                 st.warning(
-                    "No hay datos suficientes de esquinas para generar las"
-                    " gráficas de tendencia."
+                    "Insufficient corner data available to generate trend plots."
                 )
 
         with tab2:
@@ -851,7 +850,7 @@ if uploaded_file is not None:
                         value=(default_start, default_end),
                         step=1,
                         help=(
-                            "Select a continuous section/range of batteries"
+                            "Select a continuous section or range of batteries"
                             " chronologically."
                         ),
                     )
@@ -862,7 +861,7 @@ if uploaded_file is not None:
                         max_value=20.0,
                         value=1.0,
                         step=0.5,
-                        help="Visually amplify deviations.",
+                        help="Visually amplify deviations for clearer detection.",
                     )
 
                 selected_mod = st.session_state["selected_mod_target"]
