@@ -670,110 +670,29 @@ if uploaded_file is not None:
                     use_container_width=True,
                 )
 
+          col_t1, col_t2 = st.columns([1.2, 2.8])
+            with col_t1:
+                st.markdown("##### OVERALL KPI SUMMARY")
+                st.dataframe(
+                    df_quality_summary,
+                    hide_index=True,
+                    use_container_width=True,
+                )
+
+            # =========================================================
+            # ✂️ BORRAR Y REEMPLAZAR DESDE AQUÍ...
+            # =========================================================
             with col_t2:
                 st.markdown("##### WEEKLY FIRST-PASS YIELD TREND")
-                if not df_first_valid.empty:
-                    weekly_group = df_first_valid.groupby("CalendarWeek")
-                    weekly_data = []
-                    for w, w_group in weekly_group:
-                        w_total = len(w_group)
-                        w_passed = len(w_group[w_group["Status"] == "PASS"])
-                        w_failed = len(w_group[w_group["Status"] == "FAIL"])
-                        w_inc = len(w_group[w_group["Status"] == "INCOMPLETE"])
-
-                        w_rate = (
-                            (w_passed / w_total * 100) if w_total > 0 else 0
-                        )
-                        w_fail_rate = (
-                            (w_failed / w_total * 100) if w_total > 0 else 0
-                        )
-                        w_inc_rate = (
-                            (w_inc / w_total * 100) if w_total > 0 else 0
-                        )
-
-                        weekly_data.append({
-                            "CalendarWeek": w,
-                            "Total": w_total,
-                            "Passed": w_passed,
-                            "Failed": w_failed,
-                            "Incomplete": w_inc,
-                            "PassRate": w_rate,
-                            "FailRate": w_fail_rate,
-                            "IncompleteRate": w_inc_rate,
-                        })
-                    df_weekly = pd.DataFrame(weekly_data)
-
-                    passed_text = [
-                        str(v) if v > 0 else "" for v in df_weekly["Passed"]
-                    ]
-                    failed_text = [
-                        str(v) if v > 0 else "" for v in df_weekly["Failed"]
-                    ]
-                    inc_text = [
-                        str(v) if v > 0 else "" for v in df_weekly["Incomplete"]
-                    ]
-
-                    fig_weekly = go.Figure()
-                    fig_weekly.add_trace(
-                        go.Bar(
-                            x=df_weekly["CalendarWeek"],
-                            y=df_weekly["PassRate"],
-                            name="Passed (OK)",
-                            marker_color="#0f766e",
-                            text=passed_text,
-                            textposition="inside",
-                            insidetextanchor="middle",
-                        )
-                    )
-                    fig_weekly.add_trace(
-                        go.Bar(
-                            x=df_weekly["CalendarWeek"],
-                            y=df_weekly["FailRate"],
-                            name="Failed (NOK)",
-                            marker_color="#e11d48",
-                            text=failed_text,
-                            textposition="inside",
-                            insidetextanchor="middle",
-                        )
-                    )
-                    if not exclude_incomplete and sum(df_weekly["Incomplete"]) > 0:
-                        fig_weekly.add_trace(
-                            go.Bar(
-                                x=df_weekly["CalendarWeek"],
-                                y=df_weekly["IncompleteRate"],
-                                name="Incomplete",
-                                marker_color="#6b7280",
-                                text=inc_text,
-                                textposition="inside",
-                                insidetextanchor="middle",
-                            )
-                        )
-
-                    fig_weekly.update_layout(
-                        barmode="stack",
-                        yaxis=dict(range=[0, 105], title="Percentage (%)"),
-                        xaxis=dict(title="Calendar Week"),
-                        height=350,
-                        margin=dict(l=20, r=20, t=30, b=20),
-                        legend=dict(
-                            orientation="h",
-                            yanchor="bottom",
-                            y=1.02,
-                            xanchor="right",
-                            x=1,
-                        ),
-                    )
-                    fig_weekly.add_hline(
-                        y=fpy_val,
-                        line_dash="dash",
-                        line_color="#d97706",
-                        annotation_text=f"Overall FPY: {fpy_val:.1f}%",
-                        annotation_position="top right",
-                    )
-                    st.plotly_chart(fig_weekly, use_container_width=True)
+                ... (todo el código de la gráfica anterior) ...
                 else:
                     st.info("No data available to generate the weekly trend.")
+            # =========================================================
+            # ... HASTA AQUÍ ✂️
+            # =========================================================
 
+            st.markdown("---")
+            st.markdown("##### 📅 WEEKLY PASS RATE & BREAKDOWN TABLE")
             st.markdown("---")
             st.markdown("##### 📅 WEEKLY PASS RATE & BREAKDOWN TABLE")
             if not df_first_valid.empty:
