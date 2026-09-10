@@ -382,8 +382,9 @@ exclude_incomplete = st.sidebar.checkbox(
     "Excluir mediciones incompletas (esquinas faltantes)",
     value=False,
     help=(
-        "Excluye del análisis y métricas (Summary, FPY, Trend) las corridas o"
-        " baterías que no tengan el conjunto completo de sus 4 esquinas."
+        "Desactivado (por defecto): Evalúa la primera corrida estricta (Run 1) contabilizando "
+        "las mediciones incompletas en el FPY y los KPI.\n"
+        "Activado: Purga las mediciones incompletas y busca la primera corrida 100% completa."
     ),
 )
 
@@ -433,7 +434,6 @@ if uploaded_file is not None:
             axis=1,
         )
 
-        # MANTENER NaN EN LUGAR DE CONVERTIR A CERO
         df_raw["X_Val"] = pd.to_numeric(df_raw[x_dev_col], errors="coerce")
         df_raw["Y_Val"] = pd.to_numeric(df_raw[y_dev_col], errors="coerce")
 
@@ -556,29 +556,47 @@ if uploaded_file is not None:
         ]
         df_summary = df_summary[cols]
 
-        # SELECCIÓN DE LA PRIMERA CORRIDA COMPLETA POR BATERÍA
-        first_complete_records = []
-        for b_key, group in df_summary.groupby("PartID"):
-            complete_runs = group[group["IsComplete"] == True]
-            if not complete_runs.empty:
-                first_complete_records.append(complete_runs.iloc[0])
-            else:
-                first_complete_records.append(group.iloc[0])
-
-        df_first_complete = pd.DataFrame(first_complete_records)
-
-        # FILTRADO SEGÚN EL TOGGLE
+        # ==============================================================================
+        # DINÁMICA DE DATASETS Y TOGGLE
+        # ==============================================================================
         if exclude_incomplete:
+            # TOGGLE ACTIVADO: Se excluyen todas las mediciones incompletas
             df_analysis = df_summary[df_summary["IsComplete"] == True].copy()
-            df_first_valid = df_first_complete[
-                df_first_complete["IsComplete"] == True
-            ].copy()
+
+            # Se busca la Primera Corrida COMPLETA disponible por batería
+            first_complete_records = []
+            for _, group in df_summary.groupby("PartID"):
+                complete_runs = group[group["IsComplete"] == True]
+                if not complete_runs.empty:
+                    first_complete_records.append(complete_runs.iloc[0])
+
+            df_first_valid = (
+                pd.DataFrame(first_complete_records)
+                if first_complete_records
+                else pd.DataFrame(columns=df_summary.columns)
+            )
             st.sidebar.warning(
-                "⚠️ Excluyendo corridas/mediciones incompletas."
+                "⚠️ **Modo Filtrado:** Excluyendo mediciones incompletas de KPI"
+                " y gráficos."
             )
         else:
+            # TOGGLE DESACTIVADO: Se mantienen todos los registros brutos
             df_analysis = df_summary.copy()
-            df_first_valid = df_first_complete.copy()
+
+            # Evaluación ESTRICTA de la Corrida 1 (First Attempt Real) por batería
+            first_run_records = []
+            for _, group in df_summary.groupby("PartID"):
+                r1 = group[group["RunNum"] == 1]
+                if not r1.empty:
+                    first_run_records.append(r1.iloc[0])
+                else:
+                    first_run_records.append(group.iloc[0])
+
+            df_first_valid = (
+                pd.DataFrame(first_run_records)
+                if first_run_records
+                else pd.DataFrame(columns=df_summary.columns)
+            )
 
         # Pestañas de análisis
         tab1, tab2, tab3, tab4 = st.tabs([
@@ -589,20 +607,32 @@ if uploaded_file is not None:
         ])
 
         with tab1:
-            st.subheader("📋 First Complete Measurement Quality Summary")
+            st.subheader("📋 Initial Inspection Quality Summary & FPY")
 
             if exclude_incomplete:
                 st.info(
-                    "ℹ️ **Filtro activo:** Se han excluido del análisis las"
-                    " corridas incompletas."
+                    "ℹ️ **Filtro activo:** Evaluando únicamente baterías con"
+                    " **mediciones completas (4 esquinas)**."
+                )
+            else:
+                st.warning(
+                    "⚠️ **Modo Estricto:** Evaluando **Corrida #1**."
+                    " Las mediciones incompletas se contabilizan como"
+                    " 'INCOMPLETE' afectando el FPY real."
                 )
 
             total_valid_modules = len(df_first_valid)
-            passed_valid = len(df_first_valid[df_first_valid["Status"] == "PASS"])
-            failed_valid = len(df_first_valid[df_first_valid["Status"] == "FAIL"])
+            passed_valid = len(
+                df_first_valid[df_first_valid["Status"] == "PASS"]
+            )
+            failed_valid = len(
+                df_first_valid[df_first_valid["Status"] == "FAIL"]
+            )
             incomplete_valid = len(
                 df_first_valid[df_first_valid["Status"] == "INCOMPLETE"]
             )
+
+            # Cálculo de First-Pass Yield (FPY)
             fpy_val = (
                 (passed_valid / total_valid_modules * 100)
                 if total_valid_modules > 0
@@ -611,9 +641,9 @@ if uploaded_file is not None:
 
             summary_table_data = {
                 "Metric": [
-                    "Unique Modules Evaluated",
-                    "Passed First Complete Run (OK)",
-                    "Failed First Complete Run (NOK)",
+                    "Total Unique Modules Evaluated",
+                    "Passed First Inspection (OK)",
+                    "Failed First Inspection (NOK)",
                     "Incomplete Measurements",
                     "First-Pass Yield (FPY)",
                 ],
@@ -629,7 +659,7 @@ if uploaded_file is not None:
 
             col_t1, col_t2 = st.columns([1.2, 2.8])
             with col_t1:
-                st.markdown("##### OVERALL SUMMARY")
+                st.markdown("##### OVERALL KPI SUMMARY")
                 st.dataframe(
                     df_quality_summary,
                     hide_index=True,
@@ -645,19 +675,27 @@ if uploaded_file is not None:
                         w_total = len(w_group)
                         w_passed = len(w_group[w_group["Status"] == "PASS"])
                         w_failed = len(w_group[w_group["Status"] == "FAIL"])
+                        w_inc = len(w_group[w_group["Status"] == "INCOMPLETE"])
+
                         w_rate = (
                             (w_passed / w_total * 100) if w_total > 0 else 0
                         )
                         w_fail_rate = (
                             (w_failed / w_total * 100) if w_total > 0 else 0
                         )
+                        w_inc_rate = (
+                            (w_inc / w_total * 100) if w_total > 0 else 0
+                        )
+
                         weekly_data.append({
                             "CalendarWeek": w,
                             "Total": w_total,
                             "Passed": w_passed,
                             "Failed": w_failed,
+                            "Incomplete": w_inc,
                             "PassRate": w_rate,
                             "FailRate": w_fail_rate,
+                            "IncompleteRate": w_inc_rate,
                         })
                     df_weekly = pd.DataFrame(weekly_data)
 
@@ -666,6 +704,9 @@ if uploaded_file is not None:
                     ]
                     failed_text = [
                         str(v) if v > 0 else "" for v in df_weekly["Failed"]
+                    ]
+                    inc_text = [
+                        str(v) if v > 0 else "" for v in df_weekly["Incomplete"]
                     ]
 
                     fig_weekly = go.Figure()
@@ -691,6 +732,19 @@ if uploaded_file is not None:
                             insidetextanchor="middle",
                         )
                     )
+                    if not exclude_incomplete and sum(df_weekly["Incomplete"]) > 0:
+                        fig_weekly.add_trace(
+                            go.Bar(
+                                x=df_weekly["CalendarWeek"],
+                                y=df_weekly["IncompleteRate"],
+                                name="Incomplete",
+                                marker_color="#6b7280",
+                                text=inc_text,
+                                textposition="inside",
+                                insidetextanchor="middle",
+                            )
+                        )
+
                     fig_weekly.update_layout(
                         barmode="stack",
                         yaxis=dict(range=[0, 105], title="Percentage (%)"),
@@ -719,9 +773,14 @@ if uploaded_file is not None:
             st.markdown("---")
             st.markdown("##### 📅 WEEKLY PASS RATE & BREAKDOWN TABLE")
             if not df_first_valid.empty:
-                df_weekly_display = df_weekly[
-                    ["CalendarWeek", "Total", "Passed", "Failed", "PassRate"]
-                ].copy()
+                df_weekly_display = df_weekly[[
+                    "CalendarWeek",
+                    "Total",
+                    "Passed",
+                    "Failed",
+                    "Incomplete",
+                    "PassRate",
+                ]].copy()
                 df_weekly_display["PassRate"] = df_weekly_display[
                     "PassRate"
                 ].apply(lambda x: f"{x:.1f}%")
@@ -730,6 +789,7 @@ if uploaded_file is not None:
                     "Total Parts",
                     "Passed (OK)",
                     "Failed (NOK)",
+                    "Incomplete",
                     "Pass Rate (FPY)",
                 ]
                 st.dataframe(
@@ -938,9 +998,14 @@ if uploaded_file is not None:
                         label = f"⭐ {mod_identifier} [SELECTED]"
                     else:
                         status = row["Status"]
-                        color = "red" if status == "FAIL" else "gray"
-                        opacity = 0.8 if status == "FAIL" else 0.4
-                        width = 2 if status == "FAIL" else 1
+                        if status == "FAIL":
+                            color = "red"
+                        elif status == "INCOMPLETE":
+                            color = "orange"
+                        else:
+                            color = "gray"
+                        opacity = 0.8 if status in ["FAIL", "INCOMPLETE"] else 0.4
+                        width = 2 if status in ["FAIL", "INCOMPLETE"] else 1
                         label = (
                             f"{row['PartID']} (Run {row['RunNum']})"
                             f" [{status}]"
