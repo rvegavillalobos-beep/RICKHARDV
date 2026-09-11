@@ -422,13 +422,23 @@ if uploaded_file is not None:
         df_raw["ParsedDate"] = pd.to_datetime(
             df_raw[time_col], errors="coerce"
         )
-        df_raw["CalendarWeek"] = (
-            "CW"
-            + df_raw["ParsedDate"]
-            .dt.isocalendar()
-            .week.astype(str)
-            .str.zfill(2)
-        )
+        # CÓDIGO CON CONVERSIÓN A HORA DE MÉXICO:
+df_raw["ParsedDate"] = pd.to_datetime(df_raw[time_col], errors="coerce")
+
+# 1. Asignar zona horaria de Alemania y convertir a México
+df_raw["ParsedDate"] = (
+    df_raw["ParsedDate"]
+    .dt.tz_localize("Europe/Berlin", ambiguous="NaT")
+    .dt.tz_convert("America/Mexico_City")
+    .dt.tz_localize(
+        None
+    )  # Elimina el indicador offset para mantener la fecha limpia en Streamlit/Plotly
+)
+
+# 2. Las semanas calendario (CW) ahora se calculan con el horario de México
+df_raw["CalendarWeek"] = (
+    "CW" + df_raw["ParsedDate"].dt.isocalendar().week.astype(str).str.zfill(2)
+)
         df_raw["BatteryType"] = df_raw.apply(
             lambda row: determine_battery_type(row[part_col], row[feat_col]),
             axis=1,
