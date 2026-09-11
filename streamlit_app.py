@@ -250,7 +250,7 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
             marker=dict(size=4),
             customdata=df_corner[["PartID", "Date_Str", "CalendarWeek"]],
             hovertemplate=(
-                "<b>Battery #%{x}</b><br>PartID: %{customdata[0]}<br>Date:"
+                "<b>Battery #%{x}</b><br>PartID: %{customdata[0]}<br>Date (MX):"
                 " %{customdata[1]}<br>CW: %{customdata[2]}<br>Dev X: %{y:.2f}"
                 " mm<extra></extra>"
             ),
@@ -267,7 +267,7 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
             marker=dict(size=4),
             customdata=df_corner[["PartID", "Date_Str", "CalendarWeek"]],
             hovertemplate=(
-                "<b>Battery #%{x}</b><br>PartID: %{customdata[0]}<br>Date:"
+                "<b>Battery #%{x}</b><br>PartID: %{customdata[0]}<br>Date (MX):"
                 " %{customdata[1]}<br>CW: %{customdata[2]}<br>Dev Y: %{y:.2f}"
                 " mm<extra></extra>"
             ),
@@ -419,26 +419,28 @@ if uploaded_file is not None:
             if "y" in c.lower() and "deviation" in c.lower()
         ][0]
 
+        # ----------------------------------------------------------------------
+        # TIMEZONE CONVERSION (Germany -> Mexico City)
+        # ----------------------------------------------------------------------
         df_raw["ParsedDate"] = pd.to_datetime(
             df_raw[time_col], errors="coerce"
         )
-        # CÓDIGO CON CONVERSIÓN A HORA DE MÉXICO:
-df_raw["ParsedDate"] = pd.to_datetime(df_raw[time_col], errors="coerce")
 
-# 1. Asignar zona horaria de Alemania y convertir a México
-df_raw["ParsedDate"] = (
-    df_raw["ParsedDate"]
-    .dt.tz_localize("Europe/Berlin", ambiguous="NaT")
-    .dt.tz_convert("America/Mexico_City")
-    .dt.tz_localize(
-        None
-    )  # Elimina el indicador offset para mantener la fecha limpia en Streamlit/Plotly
-)
+        df_raw["ParsedDate"] = (
+            df_raw["ParsedDate"]
+            .dt.tz_localize("Europe/Berlin", ambiguous="NaT")
+            .dt.tz_convert("America/Mexico_City")
+            .dt.tz_localize(None)
+        )
 
-# 2. Las semanas calendario (CW) ahora se calculan con el horario de México
-df_raw["CalendarWeek"] = (
-    "CW" + df_raw["ParsedDate"].dt.isocalendar().week.astype(str).str.zfill(2)
-)
+        df_raw["CalendarWeek"] = (
+            "CW"
+            + df_raw["ParsedDate"]
+            .dt.isocalendar()
+            .week.astype(str)
+            .str.zfill(2)
+        )
+
         df_raw["BatteryType"] = df_raw.apply(
             lambda row: determine_battery_type(row[part_col], row[feat_col]),
             axis=1,
@@ -832,8 +834,8 @@ df_raw["CalendarWeek"] = (
 
                     st.plotly_chart(fig_weekly, use_container_width=True)
                     st.caption(
-                        ""
-                        
+                        "📌 **Note:** Weeks marked with an asterisk (*) have a low sample size"
+                        " (N < 5)."
                     )
                 else:
                     st.info("No data available to generate the weekly trend.")
@@ -867,7 +869,7 @@ df_raw["CalendarWeek"] = (
                 )
 
             st.markdown("---")
-            st.subheader("General Module Report (Chronological Order)")
+            st.subheader("General Module Report (Chronological Order - MX Time)")
             st.dataframe(
                 style_report(df_analysis, spec_limit), use_container_width=True
             )
@@ -1200,7 +1202,7 @@ df_raw["CalendarWeek"] = (
                 )
 
                 squareness_records.append({
-                    "Date": row["Date"],
+                    "Date (MX)": row["Date"],
                     "PartID": row["PartID"],
                     "RunNum": row["RunNum"],
                     "BatteryType": row["BatteryType"],
@@ -1228,7 +1230,7 @@ df_raw["CalendarWeek"] = (
                 if selected_rows:
                     row_idx = selected_rows[0]
                     r_sel = df_squareness.iloc[row_idx]
-                    date_str = pd.to_datetime(r_sel["Date"]).strftime("%Y-%m-%d")
+                    date_str = pd.to_datetime(r_sel["Date (MX)"]).strftime("%Y-%m-%d")
                     new_target = f"{r_sel['PartID']} | Run {r_sel['RunNum']} | {date_str}"
                     if new_target != st.session_state["selected_mod_target"]:
                         st.session_state["selected_mod_target"] = new_target
@@ -1440,7 +1442,7 @@ df_raw["CalendarWeek"] = (
                 "Status",
             ]].copy()
             df_vec_display.columns = [
-                "Date",
+                "Date (MX)",
                 "Week",
                 "Part ID",
                 "Type",
@@ -1485,7 +1487,7 @@ df_raw["CalendarWeek"] = (
         st.download_button(
             label="📥 Download Complete Excel Report",
             data=processed_data,
-            file_name="Quality_Analysis_Report.xlsx",
+            file_name="Quality_Analysis_Report_MX_Time.xlsx",
             mime=(
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             ),
