@@ -822,8 +822,8 @@ if uploaded_file is not None:
 
                     st.plotly_chart(fig_weekly, use_container_width=True)
                     st.caption(
-                        "📌 **Note:** Weeks marked with an asterisk (*) have a low sample size"
-                        " (N < 5)."
+                        ""
+                        
                     )
                 else:
                     st.info("No data available to generate the weekly trend.")
