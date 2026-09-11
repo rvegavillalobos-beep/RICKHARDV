@@ -560,9 +560,7 @@ if uploaded_file is not None:
         ]
         df_summary = df_summary[cols]
 
-        # ==============================================================================
-        # DATASET DYNAMICS AND TOGGLES
-        # ==============================================================================
+        # Dataset Toggles
         if exclude_incomplete:
             df_analysis = df_summary[df_summary["IsComplete"] == True].copy()
 
@@ -598,7 +596,6 @@ if uploaded_file is not None:
                 else pd.DataFrame(columns=df_summary.columns)
             )
 
-        # Standardized internal key for exact cross-tab matching
         df_analysis["_mod_key"] = (
             df_analysis["PartID"].astype(str)
             + " | Run "
@@ -607,7 +604,7 @@ if uploaded_file is not None:
             + pd.to_datetime(df_analysis["Date"]).dt.strftime("%Y-%m-%d")
         )
 
-        # Analysis Tabs
+        # Tabs
         tab1, tab2, tab3, tab4 = st.tabs([
             "📊 General Summary & FPY",
             "📈 Interactive Geometric Plot",
@@ -698,20 +695,27 @@ if uploaded_file is not None:
                         })
                     df_weekly = pd.DataFrame(weekly_data)
 
-                    # Moving Average 3 Weeks (MA3)
+                    # Moving Average 3 Weeks
                     df_weekly["MA3_FPY"] = (
                         df_weekly["PassRate"].rolling(window=3, min_periods=1).mean()
                     )
 
+                    # Calculate volume scale limit (Forces volume bars to bottom 45% of chart height)
+                    max_vol = df_weekly["Total"].max() if not df_weekly.empty else 10
+                    vol_axis_max = max(max_vol * 2.2, 5)
+
                     fig_weekly = make_subplots(specs=[[{"secondary_y": True}]])
 
-                    # Volume Bars (Secondary Axis - Right)
+                    # Volume Stacked Bars (Secondary Axis - Right)
                     fig_weekly.add_trace(
                         go.Bar(
                             x=df_weekly["CalendarWeek"],
                             y=df_weekly["Passed"],
                             name="Volume Passed (OK)",
-                            marker_color="rgba(15, 118, 110, 0.35)",
+                            marker=dict(
+                                color="rgba(16, 185, 129, 0.45)",
+                                line=dict(color="#10b981", width=1),
+                            ),
                         ),
                         secondary_y=True,
                     )
@@ -720,7 +724,10 @@ if uploaded_file is not None:
                             x=df_weekly["CalendarWeek"],
                             y=df_weekly["Failed"],
                             name="Volume Failed (NOK)",
-                            marker_color="rgba(225, 29, 72, 0.35)",
+                            marker=dict(
+                                color="rgba(244, 63, 94, 0.45)",
+                                line=dict(color="#f43f5e", width=1),
+                            ),
                         ),
                         secondary_y=True,
                     )
@@ -730,12 +737,15 @@ if uploaded_file is not None:
                                 x=df_weekly["CalendarWeek"],
                                 y=df_weekly["Incomplete"],
                                 name="Volume Incomplete",
-                                marker_color="rgba(107, 114, 128, 0.35)",
+                                marker=dict(
+                                    color="rgba(156, 163, 175, 0.45)",
+                                    line=dict(color="#9ca3af", width=1),
+                                ),
                             ),
                             secondary_y=True,
                         )
 
-                    # Weekly FPY Line (Primary Axis - Left)
+                    # Weekly FPY Line with High-Contrast White-Outlined Markers
                     fpy_labels = [
                         f"{rate:.0f}%*" if low else f"{rate:.0f}%"
                         for rate, low in zip(df_weekly["PassRate"], df_weekly["LowSample"])
@@ -747,8 +757,12 @@ if uploaded_file is not None:
                             y=df_weekly["PassRate"],
                             mode="lines+markers+text",
                             name="Weekly FPY (%)",
-                            line=dict(color="#0f766e", width=3),
-                            marker=dict(size=7, color="#0f766e"),
+                            line=dict(color="#10b981", width=3),
+                            marker=dict(
+                                size=8,
+                                color="#10b981",
+                                line=dict(width=2, color="#ffffff"),
+                            ),
                             text=fpy_labels,
                             textposition="top center",
                             hovertemplate="<b>%{x}</b><br>FPY: %{y:.1f}%<br>Total tested: %{customdata} units<extra></extra>",
@@ -757,14 +771,14 @@ if uploaded_file is not None:
                         secondary_y=False,
                     )
 
-                    # MA3 Moving Average Line
+                    # MA3 Moving Average
                     fig_weekly.add_trace(
                         go.Scatter(
                             x=df_weekly["CalendarWeek"],
                             y=df_weekly["MA3_FPY"],
                             mode="lines",
                             name="3-Week Moving Avg (MA3)",
-                            line=dict(color="#d97706", width=2, dash="dash"),
+                            line=dict(color="#f59e0b", width=2.5, dash="dash"),
                             hovertemplate="<b>3-Week MA</b>: %{y:.1f}%<extra></extra>",
                         ),
                         secondary_y=False,
@@ -774,17 +788,17 @@ if uploaded_file is not None:
                     fig_weekly.add_hline(
                         y=fpy_target,
                         line_dash="dot",
-                        line_color="#16a34a",
+                        line_color="#22c55e",
                         line_width=2,
                         annotation_text=f"Target: {fpy_target:.0f}%",
-                        annotation_position="top left",
+                        annotation_position="top right",
                         secondary_y=False,
                     )
 
                     fig_weekly.update_layout(
                         barmode="stack",
-                        height=380,
-                        margin=dict(l=20, r=20, t=30, b=20),
+                        height=400,
+                        margin=dict(l=10, r=10, t=30, b=20),
                         legend=dict(
                             orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1
                         ),
@@ -796,10 +810,11 @@ if uploaded_file is not None:
                         range=[0, 115],
                         secondary_y=False,
                         showgrid=True,
-                        gridcolor="#E5E5E5",
+                        gridcolor="rgba(128, 128, 128, 0.2)",
                     )
                     fig_weekly.update_yaxes(
                         title_text="Tested Volume (Units)",
+                        range=[0, vol_axis_max],
                         secondary_y=True,
                         showgrid=False,
                     )
@@ -938,7 +953,6 @@ if uploaded_file is not None:
                 start_idx, end_idx = selected_range
                 df_to_plot = df_analysis.iloc[start_idx : end_idx + 1].copy()
 
-                # Force inclusion of the selected module if outside current slider window
                 if selected_mod != "--- None / All ---":
                     st.info(
                         f"🔍 **Module selected for plot focus:**"
@@ -1311,38 +1325,96 @@ if uploaded_file is not None:
                 fig_drift.update_layout(
                     xaxis_title="Mean X Deviation [mm]",
                     yaxis_title="Mean Y Deviation [mm]",
-                    height=500,
+                    height=520,
                     yaxis=dict(scaleanchor="x", scaleratio=1),
+                    template="plotly_white",
                 )
                 st.plotly_chart(fig_drift, use_container_width=True)
 
             with col_v2:
-                st.markdown("##### 📉 Error Vector Magnitude by Week")
+                st.markdown("##### 📉 Error Drift Magnitude & Yaw Rotation Analysis")
+                
+                # Stacked subplots: Row 1 = Magnitude (mm), Row 2 = Yaw Rotation (deg)
+                fig_drift_rot = make_subplots(
+                    rows=2,
+                    cols=1,
+                    shared_xaxes=True,
+                    vertical_spacing=0.15,
+                    subplot_titles=(
+                        "Mean Vector Drift Magnitude (R) [mm]",
+                        "Module Yaw Rotation Angle (Yaw) [°]",
+                    ),
+                )
+
                 weekly_vector = (
                     df_vec.groupby("CalendarWeek")
                     .agg(
                         Mean_Magnitude=("Vector_Magnitude", "mean"),
-                        Max_Magnitude=("Vector_Magnitude", "max"),
                         Total_Modules=("PartID", "count"),
                     )
                     .reset_index()
                 )
 
-                fig_mag = go.Figure()
-                fig_mag.add_trace(
+                # Subplot 1: Magnitude Bar Chart
+                fig_drift_rot.add_trace(
                     go.Bar(
                         x=weekly_vector["CalendarWeek"],
                         y=weekly_vector["Mean_Magnitude"],
-                        name="Mean Drift Magnitude [mm]",
+                        name="Mean Drift [mm]",
                         marker_color="#0f766e",
-                    )
+                    ),
+                    row=1,
+                    col=1,
                 )
-                fig_mag.update_layout(
-                    yaxis=dict(title="Mean Magnitude R (mm)"),
-                    xaxis=dict(title="Week"),
-                    height=500,
+
+                # Subplot 2: Rotation Scatter Line
+                fig_drift_rot.add_trace(
+                    go.Scatter(
+                        x=df_vec["CalendarWeek"],
+                        y=df_vec["Rotation_Angle"],
+                        mode="markers+lines",
+                        name="Yaw Rotation [°]",
+                        marker=dict(
+                            size=7,
+                            color="#d97706",
+                            line=dict(width=1, color="white"),
+                        ),
+                        line=dict(color="#d97706", width=1.5, dash="dot"),
+                        customdata=df_vec[["PartID", "Status"]],
+                        hovertemplate=(
+                            "<b>%{x}</b><br>PartID: %{customdata[0]}<br>Yaw:"
+                            " %{y:.2f}°<br>Status: %{customdata[1]}<extra></extra>"
+                        ),
+                    ),
+                    row=2,
+                    col=1,
                 )
-                st.plotly_chart(fig_mag, use_container_width=True)
+
+                # Nominal 0° Reference Line for Rotation
+                fig_drift_rot.add_hline(
+                    y=0.0,
+                    line_dash="solid",
+                    line_color="rgba(128, 128, 128, 0.5)",
+                    row=2,
+                    col=1,
+                )
+
+                fig_drift_rot.update_yaxes(
+                    title_text="Drift R (mm)", row=1, col=1, showgrid=True
+                )
+                fig_drift_rot.update_yaxes(
+                    title_text="Yaw (°)", row=2, col=1, showgrid=True
+                )
+                fig_drift_rot.update_xaxes(title_text="Calendar Week", row=2, col=1)
+
+                fig_drift_rot.update_layout(
+                    height=520,
+                    margin=dict(l=10, r=10, t=30, b=10),
+                    showlegend=False,
+                    template="plotly_white",
+                )
+
+                st.plotly_chart(fig_drift_rot, use_container_width=True)
 
             st.markdown("---")
             st.markdown("##### 📋 Vector & Rotation Summary Table")
