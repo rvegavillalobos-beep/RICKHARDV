@@ -681,7 +681,7 @@ if uploaded_file is not None:
                 )
 
             with col_t2:
-                st.markdown("##### WEEKLY FPY TREND & PRODUCTION VOLUME")
+                st.markdown("#####            WEEKLY FPY TREND & PRODUCTION VOLUME")
                 if not df_first_valid.empty:
                     weekly_group = df_first_valid.groupby("CalendarWeek")
                     weekly_data = []
