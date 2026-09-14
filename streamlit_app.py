@@ -419,9 +419,7 @@ if uploaded_file is not None:
             if "y" in c.lower() and "deviation" in c.lower()
         ][0]
 
-        # ----------------------------------------------------------------------
-        # TIMEZONE CONVERSION (Germany -> Mexico City)
-        # ----------------------------------------------------------------------
+        # Timezone conversion (Germany -> Mexico City)
         df_raw["ParsedDate"] = pd.to_datetime(
             df_raw[time_col], errors="coerce"
         )
@@ -679,6 +677,19 @@ if uploaded_file is not None:
 
             with col_t2:
                 st.markdown("##### WEEKLY FPY TREND & PRODUCTION VOLUME")
+                
+                # ==============================================================
+                # MEJORA 1: SLIDER DE VENTANA DE PROMEDIO MÓVIL (2 A 10 SEMANAS)
+                # ==============================================================
+                ma_window = st.slider(
+                    "Moving Average Window (Weeks):",
+                    min_value=2,
+                    max_value=10,
+                    value=3,
+                    step=1,
+                    key="fpy_ma_window_slider",
+                )
+
                 if not df_first_valid.empty:
                     weekly_group = df_first_valid.groupby("CalendarWeek")
                     weekly_data = []
@@ -701,9 +712,9 @@ if uploaded_file is not None:
                         })
                     df_weekly = pd.DataFrame(weekly_data)
 
-                    # Moving Average 3 Weeks
-                    df_weekly["MA3_FPY"] = (
-                        df_weekly["PassRate"].rolling(window=3, min_periods=1).mean()
+                    # Dynamic Moving Average calculation
+                    df_weekly["MA_FPY"] = (
+                        df_weekly["PassRate"].rolling(window=ma_window, min_periods=1).mean()
                     )
 
                     # Calculate volume scale limit (Forces volume bars to bottom 45% of chart height)
@@ -777,15 +788,15 @@ if uploaded_file is not None:
                         secondary_y=False,
                     )
 
-                    # MA3 Moving Average
+                    # Dynamic Moving Average Line
                     fig_weekly.add_trace(
                         go.Scatter(
                             x=df_weekly["CalendarWeek"],
-                            y=df_weekly["MA3_FPY"],
+                            y=df_weekly["MA_FPY"],
                             mode="lines",
-                            name="3-Week Moving Avg (MA3)",
+                            name=f"{ma_window}-Week Moving Avg (MA{ma_window})",
                             line=dict(color="#f59e0b", width=2.5, dash="dash"),
-                            hovertemplate="<b>3-Week MA</b>: %{y:.1f}%<extra></extra>",
+                            hovertemplate=f"<b>{ma_window}-Week MA</b>: %{{y:.1f}}%<extra></extra>",
                         ),
                         secondary_y=False,
                     )
@@ -862,9 +873,7 @@ if uploaded_file is not None:
                     use_container_width=True,
                 )
 
-            # ==================================================================
-            # NUEVO COMPONENTE 1: CALIDAD POR BATTERY TYPE CON FILTRO DE SEMANAS
-            # ==================================================================
+            # Quality by Battery Type & Week Range
             st.markdown("---")
             st.markdown("##### 📊 QUALITY BREAKDOWN BY BATTERY TYPE & WEEK RANGE")
 
@@ -1302,9 +1311,6 @@ if uploaded_file is not None:
 
             df_squareness = pd.DataFrame(squareness_records)
 
-            # ==================================================================
-            # NUEVO COMPONENTE 2: DEFORMACIÓN POR BATTERY TYPE CON FILTRO
-            # ==================================================================
             if not df_squareness.empty:
                 st.markdown("---")
                 st.markdown("##### 📊 DEFORMATION ANALYSIS BY BATTERY TYPE & WEEK RANGE")
@@ -1547,6 +1553,27 @@ if uploaded_file is not None:
                 .astype(int)
             )
 
+            # ==============================================================
+            # MEJORA 2: FILTRO DE ÚLTIMAS N SEMANAS PARA CENTROID PATH
+            # ==============================================================
+            available_cws_vec = sorted(df_vec["CalendarWeek"].dropna().unique().tolist())
+            total_cws_vec = len(available_cws_vec)
+
+            if total_cws_vec > 0:
+                default_n_weeks = min(4, total_cws_vec)
+                n_selected_weeks = st.slider(
+                    "Show Last N Calendar Weeks (Centroid Path):",
+                    min_value=1,
+                    max_value=total_cws_vec,
+                    value=default_n_weeks,
+                    step=1,
+                    key="centroid_cw_slider",
+                )
+                selected_cws_centroid = available_cws_vec[-n_selected_weeks:]
+                df_vec_centroid = df_vec[df_vec["CalendarWeek"].isin(selected_cws_centroid)]
+            else:
+                df_vec_centroid = df_vec.copy()
+
             col_v1, col_v2 = st.columns(2)
 
             with col_v1:
@@ -1565,12 +1592,12 @@ if uploaded_file is not None:
                 )
                 fig_drift.add_trace(
                     go.Scatter(
-                        x=df_vec["Centroid_X"],
-                        y=df_vec["Centroid_Y"],
+                        x=df_vec_centroid["Centroid_X"],
+                        y=df_vec_centroid["Centroid_Y"],
                         mode="lines+markers",
                         marker=dict(
                             size=9,
-                            color=df_vec["WeekNum"],
+                            color=df_vec_centroid["WeekNum"],
                             colorscale="Viridis",
                             showscale=True,
                             colorbar=dict(title="Week (CW)", len=0.8, x=1.15),
