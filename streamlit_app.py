@@ -625,7 +625,7 @@ if uploaded_file is not None:
         ])
 
         with tab1:
-            st.subheader("📋 Initial Inspection Quality Summary & FPY")
+            st.subheader("📋 ST020 First Meassurements Quality Summary & FPY")
 
             if exclude_incomplete:
                 st.info(
