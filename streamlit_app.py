@@ -871,7 +871,7 @@ if uploaded_file is not None:
                     use_container_width=True,
                 )
 
-            # Quality by Battery Type & Week Range (FIXED: Uses df_first_valid / Run 1)
+            # Quality by Battery Type & Week Range
             st.markdown("---")
             st.markdown("##### 📊 QUALITY BREAKDOWN BY BATTERY TYPE & WEEK RANGE (First Measurement)")
 
@@ -892,7 +892,6 @@ if uploaded_file is not None:
                     else:
                         active_weeks_t1 = available_weeks_t1
 
-                # Evaluates strictly Run 1 / First Valid
                 df_filtered_t1 = df_first_valid[df_first_valid["CalendarWeek"].isin(active_weeks_t1)]
 
                 if not df_filtered_t1.empty:
@@ -1494,7 +1493,8 @@ if uploaded_file is not None:
         with tab4:
             st.subheader("🧭 Vector Drift, Conveyor Tuning & Rotation Analysis")
 
-            df_vec = df_analysis.copy()
+            # AJUSTE: Se utiliza df_first_valid para evaluar de forma estricta únicamente la primera corrida
+            df_vec = df_first_valid.copy()
             df_vec["Centroid_X"] = df_vec[
                 ["FL_X", "FR_X", "RL_X", "RR_X"]
             ].mean(axis=1)
@@ -1552,7 +1552,7 @@ if uploaded_file is not None:
                 .astype(int)
             )
 
-            # --- Filtro de Volumen Mínimo por Semana (Eliminar semanas de bajo volumen) ---
+            # --- Filtro de Volumen Mínimo por Semana ---
             weekly_counts = df_vec.groupby("CalendarWeek")["PartID"].count()
             max_weekly_vol = int(weekly_counts.max()) if not weekly_counts.empty else 1
 
