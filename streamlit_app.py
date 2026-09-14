@@ -175,7 +175,7 @@ def style_report(df, limit):
                                 "background-color: #ff4d4d; color: white;"
                                 " font-weight: bold;"
                             )
-                    except:
+                    except Exception:
                         pass
             elif col == "CornersOutOfSpec":
                 val = row[col]
@@ -216,7 +216,7 @@ def style_squareness_report(df, diag_limit):
                             "background-color: #ff4d4d; color: white;"
                             " font-weight: bold;"
                         )
-                except:
+                except Exception:
                     pass
             if col == "Squareness Status" and str(row[col]) == "DEFORMED":
                 styles[i] = (
@@ -236,7 +236,7 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
         drop=True
     )
     df_corner["Seq"] = range(1, len(df_corner) + 1)
-    df_corner["Date_Str"] = df_corner["Date"].dt.strftime("%Y-%m-%d %H:%M")
+    df_corner["Date_Str"] = pd.to_datetime(df_corner["Date"]).dt.strftime("%Y-%m-%d %H:%M")
 
     fig = go.Figure()
 
@@ -422,13 +422,11 @@ if uploaded_file is not None:
         # ----------------------------------------------------------------------
         # TIMEZONE CONVERSION (Germany -> Mexico City)
         # ----------------------------------------------------------------------
-        df_raw["ParsedDate"] = pd.to_datetime(
-            df_raw[time_col], errors="coerce"
-        )
-
+        parsed_dates = pd.to_datetime(df_raw[time_col], errors="coerce")
+        if parsed_dates.dt.tz is None:
+            parsed_dates = parsed_dates.dt.tz_localize("Europe/Berlin", ambiguous="NaT")
         df_raw["ParsedDate"] = (
-            df_raw["ParsedDate"]
-            .dt.tz_localize("Europe/Berlin", ambiguous="NaT")
+            parsed_dates
             .dt.tz_convert("America/Mexico_City")
             .dt.tz_localize(None)
         )
@@ -625,7 +623,7 @@ if uploaded_file is not None:
         ])
 
         with tab1:
-            st.subheader("📋 ST020 First Meassurements Quality Summary & FPY")
+            st.subheader("📋 ST020 First Measurements Quality Summary & FPY")
 
             if exclude_incomplete:
                 st.info(
@@ -634,7 +632,8 @@ if uploaded_file is not None:
                 )
             else:
                 st.warning(
-                    ""
+                    "⚠️ **Default Mode:** Evaluating all first measurements (Run 1),"
+                    " including incomplete readings in FPY."
                 )
 
             total_valid_modules = len(df_first_valid)
@@ -938,7 +937,7 @@ if uploaded_file is not None:
             if not df_analysis.empty:
                 total_mods = len(df_analysis)
 
-                col_ctrl1, col_ctrl2 = st.columns(2)
+                col_ctrl1, col_ctrl2, col_ctrl3 = st.columns([1.5, 1.5, 2.0])
                 with col_ctrl1:
                     default_start = max(0, total_mods - 10)
                     default_end = max(0, total_mods - 1)
@@ -957,9 +956,19 @@ if uploaded_file is not None:
                         value=1.0,
                         step=0.5,
                     )
+                with col_ctrl3:
+                    all_mod_options = ["--- None / All ---"] + list(df_analysis["_mod_key"].unique())
+                    current_sel = st.session_state.get("selected_mod_target", "--- None / All ---")
+                    sel_index = all_mod_options.index(current_sel) if current_sel in all_mod_options else 0
+                    
+                    selected_mod = st.selectbox(
+                        "Target Specific Module (Highlight):",
+                        options=all_mod_options,
+                        index=sel_index,
+                        key="tab2_module_selector",
+                    )
+                    st.session_state["selected_mod_target"] = selected_mod
 
-                selected_mod = st.session_state.get("selected_mod_target", "--- None / All ---")
-                
                 start_idx, end_idx = selected_range
                 df_to_plot = df_analysis.iloc[start_idx : end_idx + 1].copy()
 
