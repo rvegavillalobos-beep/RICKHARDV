@@ -1552,8 +1552,25 @@ if uploaded_file is not None:
                 .astype(int)
             )
 
+            # --- Filtro de Volumen Mínimo por Semana (Eliminar semanas de bajo volumen) ---
+            weekly_counts = df_vec.groupby("CalendarWeek")["PartID"].count()
+            max_weekly_vol = int(weekly_counts.max()) if not weekly_counts.empty else 1
+
+            min_vol = st.slider(
+                "Minimum Weekly Volume Filter (Modules/Week):",
+                min_value=1,
+                max_value=max(1, max_weekly_vol),
+                value=1,
+                step=1,
+                key="min_weekly_vol_tab4_slider",
+                help="Filter out calendar weeks with total tested modules below this threshold.",
+            )
+
+            valid_weeks = weekly_counts[weekly_counts >= min_vol].index.tolist()
+            df_vec_filtered = df_vec[df_vec["CalendarWeek"].isin(valid_weeks)].copy()
+
             # --- Filtro de últimas N semanas para Centroid Path ---
-            available_cws_vec = sorted(df_vec["CalendarWeek"].dropna().unique().tolist())
+            available_cws_vec = sorted(df_vec_filtered["CalendarWeek"].dropna().unique().tolist())
             total_cws_vec = len(available_cws_vec)
 
             if total_cws_vec > 0:
@@ -1567,9 +1584,9 @@ if uploaded_file is not None:
                     key="centroid_cw_slider",
                 )
                 selected_cws_centroid = available_cws_vec[-n_selected_weeks:]
-                df_vec_centroid = df_vec[df_vec["CalendarWeek"].isin(selected_cws_centroid)]
+                df_vec_centroid = df_vec_filtered[df_vec_filtered["CalendarWeek"].isin(selected_cws_centroid)]
             else:
-                df_vec_centroid = df_vec.copy()
+                df_vec_centroid = df_vec_filtered.copy()
 
             col_v1, col_v2 = st.columns(2)
 
@@ -1627,7 +1644,7 @@ if uploaded_file is not None:
                 )
 
                 weekly_vector = (
-                    df_vec.groupby("CalendarWeek")
+                    df_vec_filtered.groupby("CalendarWeek")
                     .agg(
                         Mean_Magnitude=("Vector_Magnitude", "mean"),
                         Total_Modules=("PartID", "count"),
@@ -1648,8 +1665,8 @@ if uploaded_file is not None:
 
                 fig_drift_rot.add_trace(
                     go.Scatter(
-                        x=df_vec["CalendarWeek"],
-                        y=df_vec["Rotation_Angle"],
+                        x=df_vec_filtered["CalendarWeek"],
+                        y=df_vec_filtered["Rotation_Angle"],
                         mode="markers+lines",
                         name="Yaw Rotation [°]",
                         marker=dict(
@@ -1658,7 +1675,7 @@ if uploaded_file is not None:
                             line=dict(width=1, color="white"),
                         ),
                         line=dict(color="#d97706", width=1.5, dash="dot"),
-                        customdata=df_vec[["PartID", "Status"]],
+                        customdata=df_vec_filtered[["PartID", "Status"]],
                         hovertemplate=(
                             "<b>%{x}</b><br>PartID: %{customdata[0]}<br>Yaw:"
                             " %{y:.2f}°<br>Status: %{customdata[1]}<extra></extra>"
@@ -1695,7 +1712,7 @@ if uploaded_file is not None:
 
             st.markdown("---")
             st.markdown("##### 📋 Vector & Rotation Summary Table")
-            df_vec_display = df_vec[[
+            df_vec_display = df_vec_filtered[[
                 "Date",
                 "CalendarWeek",
                 "PartID",
