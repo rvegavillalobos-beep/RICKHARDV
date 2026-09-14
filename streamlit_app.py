@@ -1493,139 +1493,160 @@ if uploaded_file is not None:
         with tab4:
             st.subheader("🧭 Vector Drift, Conveyor Tuning & Rotation Analysis")
 
-            # AJUSTE: Se utiliza df_first_valid para evaluar de forma estricta únicamente la primera corrida
+            # 1. Fuente de datos estricta: Solo Run 1 / First Valid
             df_vec = df_first_valid.copy()
-            df_vec["Centroid_X"] = df_vec[
-                ["FL_X", "FR_X", "RL_X", "RR_X"]
-            ].mean(axis=1)
-            df_vec["Centroid_Y"] = df_vec[
-                ["FL_Y", "FR_Y", "RL_Y", "RR_Y"]
-            ].mean(axis=1)
-            df_vec["Vector_Magnitude"] = np.sqrt(
-                df_vec["Centroid_X"] ** 2 + df_vec["Centroid_Y"] ** 2
-            )
+            df_vec["Centroid_X"] = df_vec[["FL_X", "FR_X", "RL_X", "RR_X"]].mean(axis=1)
+            df_vec["Centroid_Y"] = df_vec[["FL_Y", "FR_Y", "RL_Y", "RR_Y"]].mean(axis=1)
+            df_vec["Vector_Magnitude"] = np.sqrt(df_vec["Centroid_X"] ** 2 + df_vec["Centroid_Y"] ** 2)
 
+            # Cálculo de rotación Yaw
             rotation_list = []
             for _, row in df_vec.iterrows():
-                if (
-                    pd.isna(row["FL_X"])
-                    or pd.isna(row["FR_X"])
-                    or pd.isna(row["RL_X"])
-                    or pd.isna(row["RR_X"])
-                ):
+                if pd.isna(row["FL_X"]) or pd.isna(row["FR_X"]) or pd.isna(row["RL_X"]) or pd.isna(row["RR_X"]):
                     rotation_list.append(np.nan)
                     continue
                 nom = get_nominal_coordinates(row["BatteryType"])
-                f_nom_x = (nom["FL_X"] + nom["FR_X"]) / 2
-                f_nom_y = (nom["FL_Y"] + nom["FR_Y"]) / 2
-                r_nom_x = (nom["RL_X"] + nom["RR_X"]) / 2
-                r_nom_y = (nom["RL_Y"] + nom["RR_Y"]) / 2
-                v_nom_x = f_nom_x - r_nom_x
-                v_nom_y = f_nom_y - r_nom_y
-                angle_nom = np.degrees(np.arctan2(v_nom_y, v_nom_x))
+                f_nom_x, f_nom_y = (nom["FL_X"] + nom["FR_X"]) / 2, (nom["FL_Y"] + nom["FR_Y"]) / 2
+                r_nom_x, r_nom_y = (nom["RL_X"] + nom["RR_X"]) / 2, (nom["RL_Y"] + nom["RR_Y"]) / 2
+                angle_nom = np.degrees(np.arctan2(f_nom_y - r_nom_y, f_nom_x - r_nom_x))
 
-                fl_x_act = nom["FL_X"] + row["FL_X"]
-                fl_y_act = nom["FL_Y"] + row["FL_Y"]
-                fr_x_act = nom["FR_X"] + row["FR_X"]
-                fr_y_act = nom["FR_Y"] + row["FR_Y"]
-                rl_x_act = nom["RL_X"] + row["RL_X"]
-                rl_y_act = nom["RL_Y"] + row["RL_Y"]
-                rr_x_act = nom["RR_X"] + row["RR_X"]
-                rr_y_act = nom["RR_Y"] + row["RR_Y"]
+                fl_x_act, fl_y_act = nom["FL_X"] + row["FL_X"], nom["FL_Y"] + row["FL_Y"]
+                fr_x_act, fr_y_act = nom["FR_X"] + row["FR_X"], nom["FR_Y"] + row["FR_Y"]
+                rl_x_act, rl_y_act = nom["RL_X"] + row["RL_X"], nom["RL_Y"] + row["RL_Y"]
+                rr_x_act, rr_y_act = nom["RR_X"] + row["RR_X"], nom["RR_Y"] + row["RR_Y"]
 
-                f_act_x = (fl_x_act + fr_x_act) / 2
-                f_act_y = (fl_y_act + fr_y_act) / 2
-                r_act_x = (rl_x_act + rr_x_act) / 2
-                r_act_y = (rl_y_act + rr_y_act) / 2
-                v_act_x = f_act_x - r_act_x
-                v_act_y = f_act_y - r_act_y
-                angle_act = np.degrees(np.arctan2(v_act_y, v_act_x))
+                f_act_x, f_act_y = (fl_x_act + fr_x_act) / 2, (fl_y_act + fr_y_act) / 2
+                r_act_x, r_act_y = (rl_x_act + rr_x_act) / 2, (rl_y_act + rr_y_act) / 2
+                angle_act = np.degrees(np.arctan2(f_act_y - r_act_y, f_act_x - r_act_x))
 
-                diff_angle = angle_act - angle_nom
-                diff_angle = (diff_angle + 180) % 360 - 180
+                diff_angle = (angle_act - angle_nom + 180) % 360 - 180
                 rotation_list.append(diff_angle)
 
             df_vec["Rotation_Angle"] = rotation_list
-            df_vec["WeekNum"] = (
-                df_vec["CalendarWeek"]
-                .str.replace("CW", "", regex=False)
-                .astype(int)
+            df_vec["WeekNum"] = df_vec["CalendarWeek"].str.replace("CW", "", regex=False).astype(int)
+
+            # ==================================================================
+            # CONTROL INDEPENDIENTE PARA CENTROID DRIFT (Ignora el slider de volumen)
+            # ==================================================================
+            available_cws_all = sorted(df_vec["CalendarWeek"].dropna().unique().tolist())
+            total_cws_all = len(available_cws_all)
+
+            col_c1, col_c2 = st.columns([1, 1])
+            with col_c1:
+                if total_cws_all > 0:
+                    n_selected_weeks = st.slider(
+                        "Show Last N Calendar Weeks (Centroid Path):",
+                        min_value=1,
+                        max_value=total_cws_all,
+                        value=min(6, total_cws_all),
+                        step=1,
+                        key="centroid_cw_slider_standalone",
+                    )
+                    selected_cws_centroid = available_cws_all[-n_selected_weeks:]
+                    df_centroid_raw = df_vec[df_vec["CalendarWeek"].isin(selected_cws_centroid)].copy()
+                else:
+                    df_centroid_raw = df_vec.copy()
+
+            # Agrupación Semanal para Macro-Tendencia
+            df_weekly_centroids = (
+                df_centroid_raw.groupby("CalendarWeek")
+                .agg(
+                    Mean_X=("Centroid_X", "mean"),
+                    Mean_Y=("Centroid_Y", "mean"),
+                    WeekNum=("WeekNum", "first"),
+                    Sample_Count=("PartID", "count"),
+                )
+                .reset_index()
+                .sort_values("WeekNum")
             )
 
-            # --- Filtro de Volumen Mínimo por Semana ---
-            weekly_counts = df_vec.groupby("CalendarWeek")["PartID"].count()
-            max_weekly_vol = int(weekly_counts.max()) if not weekly_counts.empty else 1
-
-            min_vol = st.slider(
-                "Minimum Weekly Volume Filter (Modules/Week):",
-                min_value=1,
-                max_value=max(1, max_weekly_vol),
-                value=1,
-                step=1,
-                key="min_weekly_vol_tab4_slider",
-                help="Filter out calendar weeks with total tested modules below this threshold.",
-            )
-
+            # ==================================================================
+            # SLIDER DE VOLUMEN (Afecta únicamente a la gráfica de magnitudes inferiores)
+            # ==================================================================
+            with col_c2:
+                weekly_counts = df_vec.groupby("CalendarWeek")["PartID"].count()
+                max_weekly_vol = int(weekly_counts.max()) if not weekly_counts.empty else 1
+                min_vol = st.slider(
+                    "Minimum Weekly Volume Filter (Bottom Graphs Only):",
+                    min_value=1,
+                    max_value=max(1, max_weekly_vol),
+                    value=1,
+                    step=1,
+                    key="min_weekly_vol_tab4_slider",
+                )
+            
             valid_weeks = weekly_counts[weekly_counts >= min_vol].index.tolist()
             df_vec_filtered = df_vec[df_vec["CalendarWeek"].isin(valid_weeks)].copy()
 
-            # --- Filtro de últimas N semanas para Centroid Path ---
-            available_cws_vec = sorted(df_vec_filtered["CalendarWeek"].dropna().unique().tolist())
-            total_cws_vec = len(available_cws_vec)
-
-            if total_cws_vec > 0:
-                default_n_weeks = min(4, total_cws_vec)
-                n_selected_weeks = st.slider(
-                    "Show Last N Calendar Weeks (Centroid Path):",
-                    min_value=1,
-                    max_value=total_cws_vec,
-                    value=default_n_weeks,
-                    step=1,
-                    key="centroid_cw_slider",
-                )
-                selected_cws_centroid = available_cws_vec[-n_selected_weeks:]
-                df_vec_centroid = df_vec_filtered[df_vec_filtered["CalendarWeek"].isin(selected_cws_centroid)]
-            else:
-                df_vec_centroid = df_vec_filtered.copy()
-
+            # ==================================================================
+            # CONSTRUCCIÓN DEL GRÁFICO DE CENTROIDES MEJORADO
+            # ==================================================================
             col_v1, col_v2 = st.columns(2)
 
             with col_v1:
-                st.markdown("##### 📍 Centroid Trajectory (Global X-Y Drift)")
+                st.markdown("##### 📍 Weekly Centroid Macro Drift (Global X-Y Offset)")
                 fig_drift = go.Figure()
+
+                # 1. Origen Nominal (0,0)
                 fig_drift.add_trace(
                     go.Scatter(
                         x=[0],
                         y=[0],
                         mode="markers+text",
-                        marker=dict(color="green", size=12, symbol="cross"),
+                        marker=dict(color="#10b981", size=14, symbol="cross"),
                         text=["Ideal (0,0)"],
                         textposition="top center",
                         name="Nominal Center",
                     )
                 )
+
+                # 2. Piezas individuales (Nube de dispersión ligera sin líneas)
                 fig_drift.add_trace(
                     go.Scatter(
-                        x=df_vec_centroid["Centroid_X"],
-                        y=df_vec_centroid["Centroid_Y"],
-                        mode="lines+markers",
-                        marker=dict(
-                            size=9,
-                            color=df_vec_centroid["WeekNum"],
-                            colorscale="Viridis",
-                            showscale=True,
-                            colorbar=dict(title="Week (CW)", len=0.8, x=1.15),
-                        ),
-                        line=dict(color="rgba(100,100,100,0.5)", width=1.5),
-                        name="Centroid Path",
+                        x=df_centroid_raw["Centroid_X"],
+                        y=df_centroid_raw["Centroid_Y"],
+                        mode="markers",
+                        marker=dict(size=5, color="#9ca3af", opacity=0.35),
+                        name="Individual Parts",
+                        hovertemplate="Part Centroid<br>X: %{x:.2f} mm<br>Y: %{y:.2f} mm<extra></extra>",
                     )
                 )
+
+                # 3. Macro-Tendencia Semanal (Línea gruesa conectando promedios)
+                fig_drift.add_trace(
+                    go.Scatter(
+                        x=df_weekly_centroids["Mean_X"],
+                        y=df_weekly_centroids["Mean_Y"],
+                        mode="lines+markers+text",
+                        marker=dict(
+                            size=12,
+                            color=df_weekly_centroids["WeekNum"],
+                            colorscale="Viridis",
+                            showscale=True,
+                            colorbar=dict(title="Week (CW)", len=0.8, x=1.12),
+                            line=dict(width=1.5, color="white"),
+                        ),
+                        line=dict(color="#2563eb", width=3),
+                        text=df_weekly_centroids["CalendarWeek"],
+                        textposition="top right",
+                        name="Weekly Drift Path",
+                        customdata=df_weekly_centroids[["Sample_Count"]],
+                        hovertemplate=(
+                            "<b>%{text} Average</b><br>"
+                            "Mean X Offset: %{x:.2f} mm<br>"
+                            "Mean Y Offset: %{y:.2f} mm<br>"
+                            "Sample Size: %{customdata[0]} parts<extra></extra>"
+                        ),
+                    )
+                )
+
                 fig_drift.update_layout(
-                    xaxis_title="Mean X Deviation [mm]",
-                    yaxis_title="Mean Y Deviation [mm]",
+                    xaxis=dict(title="Mean X Deviation [mm]", zeroline=True, zerolinecolor="#6b7280"),
+                    yaxis=dict(title="Mean Y Deviation [mm]", zeroline=True, zerolinecolor="#6b7280", scaleanchor="x", scaleratio=1),
                     height=520,
-                    yaxis=dict(scaleanchor="x", scaleratio=1),
+                    margin=dict(l=10, r=10, t=30, b=10),
                     template="plotly_white",
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                 )
                 st.plotly_chart(fig_drift, use_container_width=True)
 
@@ -1693,12 +1714,8 @@ if uploaded_file is not None:
                     col=1,
                 )
 
-                fig_drift_rot.update_yaxes(
-                    title_text="Drift R (mm)", row=1, col=1, showgrid=True
-                )
-                fig_drift_rot.update_yaxes(
-                    title_text="Yaw (°)", row=2, col=1, showgrid=True
-                )
+                fig_drift_rot.update_yaxes(title_text="Drift R (mm)", row=1, col=1, showgrid=True)
+                fig_drift_rot.update_yaxes(title_text="Yaw (°)", row=2, col=1, showgrid=True)
                 fig_drift_rot.update_xaxes(title_text="Calendar Week", row=2, col=1)
 
                 fig_drift_rot.update_layout(
