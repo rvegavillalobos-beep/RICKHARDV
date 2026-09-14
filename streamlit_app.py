@@ -625,12 +625,11 @@ if uploaded_file is not None:
         ])
 
         with tab1:
-            st.subheader("📋 Initial Inspection Quality Summary & FPY")
+            st.subheader("First Pass Yield analysis")
 
             if exclude_incomplete:
                 st.info(
-                    "ℹ️ **Active Filter:** Evaluating only batteries with"
-                    " **complete 4-corner measurements**."
+                    ""
                 )
             else:
                 st.warning(
