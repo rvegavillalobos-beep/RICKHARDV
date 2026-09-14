@@ -369,7 +369,7 @@ def render_battery_corner_matrix(df_battery, battery_type_name, threshold_val):
 # ==============================================================================
 # MAIN APPLICATION
 # ==============================================================================
-st.title("⚙️ Quality Control & Geometric Analysis Module")
+st.title("⚙️ Quality Control & Geometric Analysis")
 
 st.sidebar.header("🛠️ Configuration & Tolerances")
 fpy_target = st.sidebar.slider(
@@ -634,9 +634,7 @@ if uploaded_file is not None:
                 )
             else:
                 st.warning(
-                    "⚠️ **Strict Mode:** Evaluating **Run #1**."
-                    " Incomplete measurements are classified as"
-                    " 'INCOMPLETE', impacting actual FPY."
+                    ""
                 )
 
             total_valid_modules = len(df_first_valid)
