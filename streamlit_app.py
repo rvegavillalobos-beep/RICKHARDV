@@ -175,7 +175,7 @@ def style_report(df, limit):
                                 "background-color: #ff4d4d; color: white;"
                                 " font-weight: bold;"
                             )
-                    except Exception:
+                    except:
                         pass
             elif col == "CornersOutOfSpec":
                 val = row[col]
@@ -216,7 +216,7 @@ def style_squareness_report(df, diag_limit):
                             "background-color: #ff4d4d; color: white;"
                             " font-weight: bold;"
                         )
-                except Exception:
+                except:
                     pass
             if col == "Squareness Status" and str(row[col]) == "DEFORMED":
                 styles[i] = (
@@ -236,7 +236,7 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
         drop=True
     )
     df_corner["Seq"] = range(1, len(df_corner) + 1)
-    df_corner["Date_Str"] = pd.to_datetime(df_corner["Date"]).dt.strftime("%Y-%m-%d %H:%M")
+    df_corner["Date_Str"] = df_corner["Date"].dt.strftime("%Y-%m-%d %H:%M")
 
     fig = go.Figure()
 
@@ -422,11 +422,13 @@ if uploaded_file is not None:
         # ----------------------------------------------------------------------
         # TIMEZONE CONVERSION (Germany -> Mexico City)
         # ----------------------------------------------------------------------
-        parsed_dates = pd.to_datetime(df_raw[time_col], errors="coerce")
-        if parsed_dates.dt.tz is None:
-            parsed_dates = parsed_dates.dt.tz_localize("Europe/Berlin", ambiguous="NaT")
+        df_raw["ParsedDate"] = pd.to_datetime(
+            df_raw[time_col], errors="coerce"
+        )
+
         df_raw["ParsedDate"] = (
-            parsed_dates
+            df_raw["ParsedDate"]
+            .dt.tz_localize("Europe/Berlin", ambiguous="NaT")
             .dt.tz_convert("America/Mexico_City")
             .dt.tz_localize(None)
         )
@@ -623,17 +625,12 @@ if uploaded_file is not None:
         ])
 
         with tab1:
-            st.subheader("📋 ST020 First Measurements Quality Summary & FPY")
+            st.subheader("📋 ST020 First Meassurements Quality Summary & FPY")
 
             if exclude_incomplete:
                 st.info(
                     "ℹ️ **Active Filter:** Evaluating only batteries with"
                     " **complete 4-corner measurements**."
-                )
-            else:
-                st.warning(
-                    "⚠️ **Default Mode:** Evaluating all first measurements (Run 1),"
-                    " including incomplete readings in FPY."
                 )
 
             total_valid_modules = len(df_first_valid)
@@ -865,6 +862,95 @@ if uploaded_file is not None:
                     use_container_width=True,
                 )
 
+            # ==================================================================
+            # NUEVO COMPONENTE 1: CALIDAD POR BATTERY TYPE CON FILTRO DE SEMANAS
+            # ==================================================================
+            st.markdown("---")
+            st.markdown("##### 📊 QUALITY BREAKDOWN BY BATTERY TYPE & WEEK RANGE")
+
+            available_weeks_t1 = sorted(df_analysis["CalendarWeek"].dropna().unique().tolist())
+            if available_weeks_t1:
+                col_w1, _ = st.columns([2, 1])
+                with col_w1:
+                    if len(available_weeks_t1) > 1:
+                        selected_weeks_t1 = st.select_slider(
+                            "Select Calendar Week Range (General Summary):",
+                            options=available_weeks_t1,
+                            value=(available_weeks_t1[0], available_weeks_t1[-1]),
+                            key="slider_weeks_tab1",
+                        )
+                        min_w_idx = available_weeks_t1.index(selected_weeks_t1[0])
+                        max_w_idx = available_weeks_t1.index(selected_weeks_t1[1])
+                        active_weeks_t1 = available_weeks_t1[min_w_idx : max_w_idx + 1]
+                    else:
+                        active_weeks_t1 = available_weeks_t1
+
+                df_filtered_t1 = df_analysis[df_analysis["CalendarWeek"].isin(active_weeks_t1)]
+
+                if not df_filtered_t1.empty:
+                    bt_status_counts = (
+                        df_filtered_t1.groupby(["BatteryType", "Status"])
+                        .size()
+                        .unstack(fill_value=0)
+                    )
+
+                    for col_status in ["PASS", "INCOMPLETE", "FAIL"]:
+                        if col_status not in bt_status_counts.columns:
+                            bt_status_counts[col_status] = 0
+
+                    bt_totals = bt_status_counts.sum(axis=1)
+                    bt_status_pct = bt_status_counts.div(bt_totals, axis=0) * 100
+
+                    fig_bt = go.Figure()
+                    status_colors = {
+                        "PASS": "#2eb82e",
+                        "INCOMPLETE": "#6b7280",
+                        "FAIL": "#ff4d4d",
+                    }
+
+                    for st_name in ["PASS", "INCOMPLETE", "FAIL"]:
+                        pct_vals = bt_status_pct[st_name]
+                        cnt_vals = bt_status_counts[st_name]
+
+                        fig_bt.add_trace(
+                            go.Bar(
+                                x=bt_status_pct.index,
+                                y=pct_vals,
+                                name=st_name,
+                                marker_color=status_colors[st_name],
+                                text=[f"{p:.1f}%<br>({c})" if p > 0 else "" for p, c in zip(pct_vals, cnt_vals)],
+                                textposition="inside",
+                                hovertemplate=(
+                                    "<b>Type: %{x}</b><br>"
+                                    f"Status: {st_name}<br>"
+                                    "Percentage: %{y:.1f}%<br>"
+                                    "Count: %{customdata} units<extra></extra>"
+                                ),
+                                customdata=cnt_vals,
+                            )
+                        )
+
+                    fig_bt.update_layout(
+                        barmode="stack",
+                        title=dict(
+                            text=f"<b>Quality Status Distribution by Battery Type (%) [{active_weeks_t1[0]} - {active_weeks_t1[-1]}]</b>",
+                            x=0.5,
+                            xanchor="center",
+                        ),
+                        xaxis=dict(title="Battery Type"),
+                        yaxis=dict(title="Percentage (%)", range=[0, 105]),
+                        height=360,
+                        margin=dict(l=10, r=10, t=40, b=20),
+                        legend=dict(
+                            orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1
+                        ),
+                        template="plotly_white",
+                    )
+
+                    st.plotly_chart(fig_bt, use_container_width=True)
+                else:
+                    st.info("No data available for the selected week range.")
+
             st.markdown("---")
             st.subheader("General Module Report (Chronological Order - MX Time)")
             st.dataframe(
@@ -937,7 +1023,7 @@ if uploaded_file is not None:
             if not df_analysis.empty:
                 total_mods = len(df_analysis)
 
-                col_ctrl1, col_ctrl2, col_ctrl3 = st.columns([1.5, 1.5, 2.0])
+                col_ctrl1, col_ctrl2 = st.columns(2)
                 with col_ctrl1:
                     default_start = max(0, total_mods - 10)
                     default_end = max(0, total_mods - 1)
@@ -956,19 +1042,9 @@ if uploaded_file is not None:
                         value=1.0,
                         step=0.5,
                     )
-                with col_ctrl3:
-                    all_mod_options = ["--- None / All ---"] + list(df_analysis["_mod_key"].unique())
-                    current_sel = st.session_state.get("selected_mod_target", "--- None / All ---")
-                    sel_index = all_mod_options.index(current_sel) if current_sel in all_mod_options else 0
-                    
-                    selected_mod = st.selectbox(
-                        "Target Specific Module (Highlight):",
-                        options=all_mod_options,
-                        index=sel_index,
-                        key="tab2_module_selector",
-                    )
-                    st.session_state["selected_mod_target"] = selected_mod
 
+                selected_mod = st.session_state.get("selected_mod_target", "--- None / All ---")
+                
                 start_idx, end_idx = selected_range
                 df_to_plot = df_analysis.iloc[start_idx : end_idx + 1].copy()
 
@@ -1210,6 +1286,7 @@ if uploaded_file is not None:
 
                 squareness_records.append({
                     "Date (MX)": row["Date"],
+                    "CalendarWeek": row["CalendarWeek"],
                     "PartID": row["PartID"],
                     "RunNum": row["RunNum"],
                     "BatteryType": row["BatteryType"],
@@ -1224,7 +1301,168 @@ if uploaded_file is not None:
                 })
 
             df_squareness = pd.DataFrame(squareness_records)
+
+            # ==================================================================
+            # NUEVO COMPONENTE 2: DEFORMACIÓN POR BATTERY TYPE CON FILTRO
+            # ==================================================================
             if not df_squareness.empty:
+                st.markdown("---")
+                st.markdown("##### 📊 DEFORMATION ANALYSIS BY BATTERY TYPE & WEEK RANGE")
+
+                available_weeks_t3 = sorted(df_squareness["CalendarWeek"].dropna().unique().tolist())
+                if available_weeks_t3:
+                    col_sw1, _ = st.columns([2, 1])
+                    with col_sw1:
+                        if len(available_weeks_t3) > 1:
+                            selected_weeks_t3 = st.select_slider(
+                                "Select Calendar Week Range (Squareness):",
+                                options=available_weeks_t3,
+                                value=(available_weeks_t3[0], available_weeks_t3[-1]),
+                                key="slider_weeks_tab3",
+                            )
+                            min_w_idx3 = available_weeks_t3.index(selected_weeks_t3[0])
+                            max_w_idx3 = available_weeks_t3.index(selected_weeks_t3[1])
+                            active_weeks_t3 = available_weeks_t3[min_w_idx3 : max_w_idx3 + 1]
+                        else:
+                            active_weeks_t3 = available_weeks_t3
+
+                    df_sq_filtered = df_squareness[df_squareness["CalendarWeek"].isin(active_weeks_t3)]
+
+                    if not df_sq_filtered.empty:
+                        col_sq1, col_sq2 = st.columns(2)
+
+                        # Chart 1: SQUARE OK vs DEFORMED % by Battery Type
+                        with col_sq1:
+                            sq_status_counts = (
+                                df_sq_filtered.groupby(["BatteryType", "Squareness Status"])
+                                .size()
+                                .unstack(fill_value=0)
+                            )
+                            for s_col in ["SQUARE OK", "DEFORMED"]:
+                                if s_col not in sq_status_counts.columns:
+                                    sq_status_counts[s_col] = 0
+
+                            sq_totals = sq_status_counts.sum(axis=1)
+                            sq_status_pct = sq_status_counts.div(sq_totals, axis=0) * 100
+
+                            fig_sq = go.Figure()
+                            sq_colors = {"SQUARE OK": "#2eb82e", "DEFORMED": "#ff4d4d"}
+
+                            for st_name in ["SQUARE OK", "DEFORMED"]:
+                                pct_vals = sq_status_pct[st_name]
+                                cnt_vals = sq_status_counts[st_name]
+                                fig_sq.add_trace(
+                                    go.Bar(
+                                        x=sq_status_pct.index,
+                                        y=pct_vals,
+                                        name=st_name,
+                                        marker_color=sq_colors[st_name],
+                                        text=[f"{p:.1f}%<br>({c})" if p > 0 else "" for p, c in zip(pct_vals, cnt_vals)],
+                                        textposition="inside",
+                                        hovertemplate=(
+                                            "<b>Type: %{x}</b><br>"
+                                            f"Status: {st_name}<br>"
+                                            "Percentage: %{y:.1f}%<br>"
+                                            "Count: %{customdata} units<extra></extra>"
+                                        ),
+                                        customdata=cnt_vals,
+                                    )
+                                )
+
+                            fig_sq.update_layout(
+                                barmode="stack",
+                                title=dict(
+                                    text="<b>Squareness Status Breakdown by Battery Type (%)</b>",
+                                    x=0.5,
+                                    xanchor="center",
+                                ),
+                                xaxis=dict(title="Battery Type"),
+                                yaxis=dict(title="Percentage (%)", range=[0, 105]),
+                                height=350,
+                                margin=dict(l=10, r=10, t=40, b=20),
+                                legend=dict(
+                                    orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1
+                                ),
+                                template="plotly_white",
+                            )
+                            st.plotly_chart(fig_sq, use_container_width=True)
+
+                        # Chart 2: Root Cause Breakdown for DEFORMED Batteries
+                        with col_sq2:
+                            df_deformed_only = df_sq_filtered[df_sq_filtered["Squareness Status"] == "DEFORMED"].copy()
+                            if not df_deformed_only.empty:
+                                def categorize_root_cause(detail_str):
+                                    d = str(detail_str).upper()
+                                    if "PARALLELOGRAM" in d:
+                                        return "Parallelogram Tilt"
+                                    elif "TRAPEZOIDAL WIDTH" in d:
+                                        return "Trapezoidal Width"
+                                    elif "TRAPEZOIDAL LENGTH" in d:
+                                        return "Trapezoidal Length"
+                                    else:
+                                        return "Combined Asymmetry"
+
+                                df_deformed_only["CauseCategory"] = df_deformed_only["Root Cause Details"].apply(categorize_root_cause)
+
+                                cause_counts = (
+                                    df_deformed_only.groupby(["BatteryType", "CauseCategory"])
+                                    .size()
+                                    .unstack(fill_value=0)
+                                )
+                                cause_totals = cause_counts.sum(axis=1)
+                                cause_pct = cause_counts.div(cause_totals, axis=0) * 100
+
+                                fig_cause = go.Figure()
+                                cause_colors = {
+                                    "Parallelogram Tilt": "#f59e0b",
+                                    "Trapezoidal Width": "#ef4444",
+                                    "Trapezoidal Length": "#8b5cf6",
+                                    "Combined Asymmetry": "#ec4899",
+                                }
+
+                                for c_cat in cause_counts.columns:
+                                    pct_vals = cause_pct[c_cat]
+                                    cnt_vals = cause_counts[c_cat]
+                                    fig_cause.add_trace(
+                                        go.Bar(
+                                            x=cause_pct.index,
+                                            y=pct_vals,
+                                            name=c_cat,
+                                            marker_color=cause_colors.get(c_cat, "#64748b"),
+                                            text=[f"{p:.1f}%<br>({c})" if p > 0 else "" for p, c in zip(pct_vals, cnt_vals)],
+                                            textposition="inside",
+                                            hovertemplate=(
+                                                "<b>Type: %{x}</b><br>"
+                                                f"Root Cause: {c_cat}<br>"
+                                                "Percentage: %{y:.1f}%<br>"
+                                                "Count: %{customdata} units<extra></extra>"
+                                            ),
+                                            customdata=cnt_vals,
+                                        )
+                                    )
+
+                                fig_cause.update_layout(
+                                    barmode="stack",
+                                    title=dict(
+                                        text="<b>Deformation Root Cause Breakdown (%)</b>",
+                                        x=0.5,
+                                        xanchor="center",
+                                    ),
+                                    xaxis=dict(title="Battery Type"),
+                                    yaxis=dict(title="Percentage (%)", range=[0, 105]),
+                                    height=350,
+                                    margin=dict(l=10, r=10, t=40, b=20),
+                                    legend=dict(
+                                        orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1
+                                    ),
+                                    template="plotly_white",
+                                )
+                                st.plotly_chart(fig_cause, use_container_width=True)
+                            else:
+                                st.success("🎉 No DEFORMED batteries found in the selected week range!")
+
+                st.markdown("---")
+
                 event = st.dataframe(
                     style_squareness_report(df_squareness, max_diag_tol),
                     use_container_width=True,
@@ -1353,7 +1591,6 @@ if uploaded_file is not None:
             with col_v2:
                 st.markdown("##### 📉 Error Drift Magnitude & Yaw Rotation Analysis")
                 
-                # Stacked subplots: Row 1 = Magnitude (mm), Row 2 = Yaw Rotation (deg)
                 fig_drift_rot = make_subplots(
                     rows=2,
                     cols=1,
@@ -1374,7 +1611,6 @@ if uploaded_file is not None:
                     .reset_index()
                 )
 
-                # Subplot 1: Magnitude Bar Chart
                 fig_drift_rot.add_trace(
                     go.Bar(
                         x=weekly_vector["CalendarWeek"],
@@ -1386,7 +1622,6 @@ if uploaded_file is not None:
                     col=1,
                 )
 
-                # Subplot 2: Rotation Scatter Line
                 fig_drift_rot.add_trace(
                     go.Scatter(
                         x=df_vec["CalendarWeek"],
@@ -1409,7 +1644,6 @@ if uploaded_file is not None:
                     col=1,
                 )
 
-                # Nominal 0° Reference Line for Rotation
                 fig_drift_rot.add_hline(
                     y=0.0,
                     line_dash="solid",
