@@ -323,7 +323,7 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
 
 
 def render_battery_corner_matrix(df_battery, battery_type_name, threshold_val):
-    st.subheader(f"🔋 {battery_type_name} Corner Deviation Trend (Sequential)")
+    st.subheader(f"🔋 {battery_type_name} Corner Deviation Trend")
 
     row1_col1, row1_col2 = st.columns(2)
     row2_col1, row2_col2 = st.columns(2)
@@ -873,7 +873,7 @@ if uploaded_file is not None:
             )
 
             st.divider()
-            st.header("📈 Corner Deviation Time Series Analysis (2x2 Matrix)")
+            st.header("📈 Corner Deviation Analysis")
 
             corner_records = []
             for _, row in df_first_valid.iterrows():
