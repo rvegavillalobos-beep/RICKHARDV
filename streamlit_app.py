@@ -872,96 +872,96 @@ if uploaded_file is not None:
                     hide_index=True,
                     use_container_width=True,
                 )
+# --- QUALITY BREAKDOWN BY BATTERY TYPE & WEEK RANGE (Run 1 Only) ---
+st.markdown("---")
+st.markdown("##### 📊 QUALITY BREAKDOWN BY BATTERY TYPE & WEEK RANGE (First Measurement)")
 
-            # Quality by Battery Type & Week Range
+available_weeks_t1 = sorted(df_first_valid["CalendarWeek"].dropna().unique().tolist())
+if available_weeks_t1:
+    col_w1, _ = st.columns([2, 1])
+    with col_w1:
+        if len(available_weeks_t1) > 1:
+            selected_weeks_t1 = st.select_slider(
+                "Select Calendar Week Range (General Summary):",
+                options=available_weeks_t1,
+                value=(available_weeks_t1[0], available_weeks_t1[-1]),
+                key="slider_weeks_tab1",
+            )
+            min_w_idx = available_weeks_t1.index(selected_weeks_t1[0])
+            max_w_idx = available_weeks_t1.index(selected_weeks_t1[1])
+            active_weeks_t1 = available_weeks_t1[min_w_idx : max_w_idx + 1]
+        else:
+            active_weeks_t1 = available_weeks_t1
+
+    # Filtrar directamente sobre las primeras mediciones (Run 1 / First Valid)
+    df_filtered_t1 = df_first_valid[df_first_valid["CalendarWeek"].isin(active_weeks_t1)]
+
+    if not df_filtered_t1.empty:
+        bt_status_counts = (
+            df_filtered_t1.groupby(["BatteryType", "Status"])
+            .size()
+            .unstack(fill_value=0)
+        )
+
+        for col_status in ["PASS", "INCOMPLETE", "FAIL"]:
+            if col_status not in bt_status_counts.columns:
+                bt_status_counts[col_status] = 0
+
+        bt_totals = bt_status_counts.sum(axis=1)
+        bt_status_pct = bt_status_counts.div(bt_totals, axis=0) * 100
+
+        fig_bt = go.Figure()
+        status_colors = {
+            "PASS": "#2eb82e",
+            "INCOMPLETE": "#6b7280",
+            "FAIL": "#ff4d4d",
+        }
+
+        for st_name in ["PASS", "INCOMPLETE", "FAIL"]:
+            pct_vals = bt_status_pct[st_name]
+            cnt_vals = bt_status_counts[st_name]
+
+            fig_bt.add_trace(
+                go.Bar(
+                    x=bt_status_pct.index,
+                    y=pct_vals,
+                    name=st_name,
+                    marker_color=status_colors[st_name],
+                    text=[f"{p:.1f}%<br>({c})" if p > 0 else "" for p, c in zip(pct_vals, cnt_vals)],
+                    textposition="inside",
+                    hovertemplate=(
+                        "<b>Type: %{x}</b><br>"
+                        f"Status: {st_name}<br>"
+                        "Percentage: %{y:.1f}%<br>"
+                        "Count: %{customdata} units<extra></extra>"
+                    ),
+                    customdata=cnt_vals,
+                )
+            )
+
+        fig_bt.update_layout(
+            barmode="stack",
+            title=dict(
+                text=f"<b>Quality Status Distribution (Run 1) by Battery Type (%) [{active_weeks_t1[0]} - {active_weeks_t1[-1]}]</b>",
+                x=0.5,
+                xanchor="center",
+            ),
+            xaxis=dict(title="Battery Type"),
+            yaxis=dict(title="Percentage (%)", range=[0, 105]),
+            height=360,
+            margin=dict(l=10, r=10, t=40, b=20),
+            legend=dict(
+                orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1
+            ),
+            template="plotly_white",
+        )
+
+        st.plotly_chart(fig_bt, use_container_width=True)
+    else:
+        st.info("No data available for the selected week range.")
+
             st.markdown("---")
-            st.markdown("##### 📊 QUALITY BREAKDOWN BY BATTERY TYPE & WEEK RANGE")
-
-            available_weeks_t1 = sorted(df_analysis["CalendarWeek"].dropna().unique().tolist())
-            if available_weeks_t1:
-                col_w1, _ = st.columns([2, 1])
-                with col_w1:
-                    if len(available_weeks_t1) > 1:
-                        selected_weeks_t1 = st.select_slider(
-                            "Select Calendar Week Range (General Summary):",
-                            options=available_weeks_t1,
-                            value=(available_weeks_t1[0], available_weeks_t1[-1]),
-                            key="slider_weeks_tab1",
-                        )
-                        min_w_idx = available_weeks_t1.index(selected_weeks_t1[0])
-                        max_w_idx = available_weeks_t1.index(selected_weeks_t1[1])
-                        active_weeks_t1 = available_weeks_t1[min_w_idx : max_w_idx + 1]
-                    else:
-                        active_weeks_t1 = available_weeks_t1
-
-                df_filtered_t1 = df_analysis[df_analysis["CalendarWeek"].isin(active_weeks_t1)]
-
-                if not df_filtered_t1.empty:
-                    bt_status_counts = (
-                        df_filtered_t1.groupby(["BatteryType", "Status"])
-                        .size()
-                        .unstack(fill_value=0)
-                    )
-
-                    for col_status in ["PASS", "INCOMPLETE", "FAIL"]:
-                        if col_status not in bt_status_counts.columns:
-                            bt_status_counts[col_status] = 0
-
-                    bt_totals = bt_status_counts.sum(axis=1)
-                    bt_status_pct = bt_status_counts.div(bt_totals, axis=0) * 100
-
-                    fig_bt = go.Figure()
-                    status_colors = {
-                        "PASS": "#2eb82e",
-                        "INCOMPLETE": "#6b7280",
-                        "FAIL": "#ff4d4d",
-                    }
-
-                    for st_name in ["PASS", "INCOMPLETE", "FAIL"]:
-                        pct_vals = bt_status_pct[st_name]
-                        cnt_vals = bt_status_counts[st_name]
-
-                        fig_bt.add_trace(
-                            go.Bar(
-                                x=bt_status_pct.index,
-                                y=pct_vals,
-                                name=st_name,
-                                marker_color=status_colors[st_name],
-                                text=[f"{p:.1f}%<br>({c})" if p > 0 else "" for p, c in zip(pct_vals, cnt_vals)],
-                                textposition="inside",
-                                hovertemplate=(
-                                    "<b>Type: %{x}</b><br>"
-                                    f"Status: {st_name}<br>"
-                                    "Percentage: %{y:.1f}%<br>"
-                                    "Count: %{customdata} units<extra></extra>"
-                                ),
-                                customdata=cnt_vals,
-                            )
-                        )
-
-                    fig_bt.update_layout(
-                        barmode="stack",
-                        title=dict(
-                            text=f"<b>Quality Status Distribution by Battery Type (%) [{active_weeks_t1[0]} - {active_weeks_t1[-1]}]</b>",
-                            x=0.5,
-                            xanchor="center",
-                        ),
-                        xaxis=dict(title="Battery Type"),
-                        yaxis=dict(title="Percentage (%)", range=[0, 105]),
-                        height=360,
-                        margin=dict(l=10, r=10, t=40, b=20),
-                        legend=dict(
-                            orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1
-                        ),
-                        template="plotly_white",
-                    )
-
-                    st.plotly_chart(fig_bt, use_container_width=True)
-                else:
-                    st.info("No data available for the selected week range.")
-
-            st.markdown("---")
-            st.subheader("General Module Report (Chronological Order - MX Time)")
+            st.subheader("General Module Report")
             st.dataframe(
                 style_report(df_analysis, spec_limit), use_container_width=True
             )
