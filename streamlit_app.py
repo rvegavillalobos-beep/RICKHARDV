@@ -184,6 +184,13 @@ def style_report(df, limit):
                         "background-color: #d97706; color: white;"
                         " font-weight: bold;"
                     )
+            elif col == "MissingCorners":
+                val = row[col]
+                if val is not None and not pd.isna(val) and int(val) > 0:
+                    styles[i] = (
+                        "background-color: #e11d48; color: white;"
+                        " font-weight: bold;"
+                    )
             elif col == "Status":
                 if str(row[col]) == "FAIL":
                     styles[i] = (
@@ -193,11 +200,6 @@ def style_report(df, limit):
                 elif str(row[col]) == "PASS":
                     styles[i] = (
                         "background-color: #2eb82e; color: white; font-weight:"
-                        " bold;"
-                    )
-                elif str(row[col]) == "INCOMPLETE":
-                    styles[i] = (
-                        "background-color: #6b7280; color: white; font-weight:"
                         " bold;"
                     )
         return styles
@@ -386,8 +388,8 @@ exclude_incomplete = st.sidebar.checkbox(
     "Exclude incomplete measurements (missing corners)",
     value=False,
     help=(
-        "Disabled (default): Evaluates strict first run (Run 1) accounting "
-        "for incomplete measurements in FPY and KPIs.\n"
+        "Disabled (default): Assumes missing coordinates in Run 1 are NOK/FAIL "
+        "(out of CMM FOV) and accounts for them in FPY and KPIs.\n"
         "Enabled: Purges incomplete measurements and searches for the first 100% complete run."
     ),
 )
@@ -516,9 +518,8 @@ if uploaded_file is not None:
 
             is_complete = missing_corners == 0
 
-            if not is_complete:
-                status = "INCOMPLETE"
-            elif corners_out_of_spec > 0:
+            # LÓGICA REVISADA: Si faltan esquinas (fuera de campo CMM), se asume NOK/FAIL
+            if missing_corners > 0 or corners_out_of_spec > 0:
                 status = "FAIL"
             else:
                 status = "PASS"
@@ -623,7 +624,7 @@ if uploaded_file is not None:
         ])
 
         with tab1:
-            st.subheader("📋 ST020 First Meassurements Quality Summary & FPY")
+            st.subheader("📋 ST020 First Measurements Quality Summary & FPY")
 
             if exclude_incomplete:
                 st.info(
@@ -638,8 +639,8 @@ if uploaded_file is not None:
             failed_valid = len(
                 df_first_valid[df_first_valid["Status"] == "FAIL"]
             )
-            incomplete_valid = len(
-                df_first_valid[df_first_valid["Status"] == "INCOMPLETE"]
+            incomplete_out_of_fov = len(
+                df_first_valid[df_first_valid["MissingCorners"] > 0]
             )
 
             fpy_val = (
@@ -652,15 +653,15 @@ if uploaded_file is not None:
                 "Metric": [
                     "Total Unique Modules Evaluated",
                     "Passed First Inspection (OK)",
-                    "Failed First Inspection (NOK)",
-                    "Incomplete Measurements",
+                    "Failed First Inspection (NOK Total)",
+                    "  ↳ Out of CMM FOV (Missing Corners)",
                     "First-Pass Yield (FPY)",
                 ],
                 "Value": [
                     total_valid_modules,
                     passed_valid,
                     failed_valid,
-                    incomplete_valid,
+                    incomplete_out_of_fov,
                     f"{fpy_val:.1f}%",
                 ],
             }
@@ -678,7 +679,6 @@ if uploaded_file is not None:
             with col_t2:
                 st.markdown("##### WEEKLY FPY TREND & PRODUCTION VOLUME")
                 
-                # Moving average window slider
                 ma_window = st.slider(
                     "Moving Average Window (Weeks):",
                     min_value=2,
@@ -695,7 +695,7 @@ if uploaded_file is not None:
                         w_total = len(w_group)
                         w_passed = len(w_group[w_group["Status"] == "PASS"])
                         w_failed = len(w_group[w_group["Status"] == "FAIL"])
-                        w_inc = len(w_group[w_group["Status"] == "INCOMPLETE"])
+                        w_inc = len(w_group[w_group["MissingCorners"] > 0])
 
                         w_rate = (w_passed / w_total * 100) if w_total > 0 else 0
 
@@ -704,24 +704,21 @@ if uploaded_file is not None:
                             "Total": w_total,
                             "Passed": w_passed,
                             "Failed": w_failed,
-                            "Incomplete": w_inc,
+                            "Incomplete_FOV": w_inc,
                             "PassRate": w_rate,
                             "LowSample": w_total < 5,
                         })
                     df_weekly = pd.DataFrame(weekly_data)
 
-                    # Dynamic Moving Average calculation
                     df_weekly["MA_FPY"] = (
                         df_weekly["PassRate"].rolling(window=ma_window, min_periods=1).mean()
                     )
 
-                    # Volume scale limit
                     max_vol = df_weekly["Total"].max() if not df_weekly.empty else 10
                     vol_axis_max = max(max_vol * 2.2, 5)
 
                     fig_weekly = make_subplots(specs=[[{"secondary_y": True}]])
 
-                    # Volume Stacked Bars with direct text labels
                     fig_weekly.add_trace(
                         go.Bar(
                             x=df_weekly["CalendarWeek"],
@@ -731,8 +728,6 @@ if uploaded_file is not None:
                                 color="rgba(16, 185, 129, 0.45)",
                                 line=dict(color="#10b981", width=1),
                             ),
-                            text=df_weekly["Passed"],
-                            textposition="inside",
                         ),
                         secondary_y=True,
                     )
@@ -745,28 +740,10 @@ if uploaded_file is not None:
                                 color="rgba(244, 63, 94, 0.45)",
                                 line=dict(color="#f43f5e", width=1),
                             ),
-                            text=df_weekly["Failed"],
-                            textposition="inside",
                         ),
                         secondary_y=True,
                     )
-                    if not exclude_incomplete and sum(df_weekly["Incomplete"]) > 0:
-                        fig_weekly.add_trace(
-                            go.Bar(
-                                x=df_weekly["CalendarWeek"],
-                                y=df_weekly["Incomplete"],
-                                name="Volume Incomplete",
-                                marker=dict(
-                                    color="rgba(156, 163, 175, 0.45)",
-                                    line=dict(color="#9ca3af", width=1),
-                                ),
-                                text=df_weekly["Incomplete"],
-                                textposition="inside",
-                            ),
-                            secondary_y=True,
-                        )
 
-                    # Weekly FPY Line with percentage tags
                     fpy_labels = [
                         f"{rate:.0f}%*" if low else f"{rate:.0f}%"
                         for rate, low in zip(df_weekly["PassRate"], df_weekly["LowSample"])
@@ -792,7 +769,6 @@ if uploaded_file is not None:
                         secondary_y=False,
                     )
 
-                    # Moving Average Line
                     fig_weekly.add_trace(
                         go.Scatter(
                             x=df_weekly["CalendarWeek"],
@@ -805,7 +781,6 @@ if uploaded_file is not None:
                         secondary_y=False,
                     )
 
-                    # Target Line
                     fig_weekly.add_hline(
                         y=fpy_target,
                         line_dash="dot",
@@ -857,7 +832,7 @@ if uploaded_file is not None:
                     "Total",
                     "Passed",
                     "Failed",
-                    "Incomplete",
+                    "Incomplete_FOV",
                     "PassRate",
                 ]].copy()
                 df_weekly_display["PassRate"] = df_weekly_display[
@@ -868,7 +843,7 @@ if uploaded_file is not None:
                     "Total Parts",
                     "Passed (OK)",
                     "Failed (NOK)",
-                    "Incomplete",
+                    "Out of FOV (Missing Corners)",
                     "Pass Rate (FPY)",
                 ]
                 st.dataframe(
@@ -877,7 +852,6 @@ if uploaded_file is not None:
                     use_container_width=True,
                 )
 
-            # Quality by Battery Type & Week Range
             st.markdown("---")
             st.markdown("##### 📊 QUALITY BREAKDOWN BY BATTERY TYPE & WEEK RANGE (First Measurement)")
 
@@ -907,7 +881,7 @@ if uploaded_file is not None:
                         .unstack(fill_value=0)
                     )
 
-                    for col_status in ["PASS", "INCOMPLETE", "FAIL"]:
+                    for col_status in ["PASS", "FAIL"]:
                         if col_status not in bt_status_counts.columns:
                             bt_status_counts[col_status] = 0
 
@@ -917,11 +891,10 @@ if uploaded_file is not None:
                     fig_bt = go.Figure()
                     status_colors = {
                         "PASS": "#2eb82e",
-                        "INCOMPLETE": "#6b7280",
                         "FAIL": "#ff4d4d",
                     }
 
-                    for st_name in ["PASS", "INCOMPLETE", "FAIL"]:
+                    for st_name in ["PASS", "FAIL"]:
                         pct_vals = bt_status_pct[st_name]
                         cnt_vals = bt_status_counts[st_name]
 
@@ -931,7 +904,7 @@ if uploaded_file is not None:
                                 y=pct_vals,
                                 name=st_name,
                                 marker_color=status_colors[st_name],
-                                text=[f"{p:.1f}% ({c})" if p > 0 else "" for p, c in zip(pct_vals, cnt_vals)],
+                                text=[f"{p:.1f}%<br>({c})" if p > 0 else "" for p, c in zip(pct_vals, cnt_vals)],
                                 textposition="inside",
                                 hovertemplate=(
                                     "<b>Type: %{x}</b><br>"
@@ -1168,12 +1141,10 @@ if uploaded_file is not None:
                         status = row["Status"]
                         if status == "FAIL":
                             color = "red"
-                        elif status == "INCOMPLETE":
-                            color = "orange"
                         else:
                             color = "gray"
-                        opacity = 0.8 if status in ["FAIL", "INCOMPLETE"] else 0.4
-                        width = 2 if status in ["FAIL", "INCOMPLETE"] else 1
+                        opacity = 0.8 if status == "FAIL" else 0.4
+                        width = 2 if status == "FAIL" else 1
                         label = (
                             f"{row['PartID']} (Run {row['RunNum']})"
                             f" [{status}]"
@@ -1341,7 +1312,6 @@ if uploaded_file is not None:
                     if not df_sq_filtered.empty:
                         col_sq1, col_sq2 = st.columns(2)
 
-                        # Chart 1: SQUARE OK vs DEFORMED % by Battery Type
                         with col_sq1:
                             sq_status_counts = (
                                 df_sq_filtered.groupby(["BatteryType", "Squareness Status"])
@@ -1367,7 +1337,7 @@ if uploaded_file is not None:
                                         y=pct_vals,
                                         name=st_name,
                                         marker_color=sq_colors[st_name],
-                                        text=[f"{p:.1f}% ({c})" if p > 0 else "" for p, c in zip(pct_vals, cnt_vals)],
+                                        text=[f"{p:.1f}%<br>({c})" if p > 0 else "" for p, c in zip(pct_vals, cnt_vals)],
                                         textposition="inside",
                                         hovertemplate=(
                                             "<b>Type: %{x}</b><br>"
@@ -1397,7 +1367,6 @@ if uploaded_file is not None:
                             )
                             st.plotly_chart(fig_sq, use_container_width=True)
 
-                        # Chart 2: Root Cause Breakdown for DEFORMED Batteries
                         with col_sq2:
                             df_deformed_only = df_sq_filtered[df_sq_filtered["Squareness Status"] == "DEFORMED"].copy()
                             if not df_deformed_only.empty:
@@ -1439,7 +1408,7 @@ if uploaded_file is not None:
                                             y=pct_vals,
                                             name=c_cat,
                                             marker_color=cause_colors.get(c_cat, "#64748b"),
-                                            text=[f"{p:.1f}% ({c})" if p > 0 else "" for p, c in zip(pct_vals, cnt_vals)],
+                                            text=[f"{p:.1f}%<br>({c})" if p > 0 else "" for p, c in zip(pct_vals, cnt_vals)],
                                             textposition="inside",
                                             hovertemplate=(
                                                 "<b>Type: %{x}</b><br>"
@@ -1499,13 +1468,11 @@ if uploaded_file is not None:
         with tab4:
             st.subheader("🧭 Vector Drift, Conveyor Tuning & Rotation Analysis")
 
-            # First Valid Run
             df_vec = df_first_valid.copy()
             df_vec["Centroid_X"] = df_vec[["FL_X", "FR_X", "RL_X", "RR_X"]].mean(axis=1)
             df_vec["Centroid_Y"] = df_vec[["FL_Y", "FR_Y", "RL_Y", "RR_Y"]].mean(axis=1)
             df_vec["Vector_Magnitude"] = np.sqrt(df_vec["Centroid_X"] ** 2 + df_vec["Centroid_Y"] ** 2)
 
-            # Yaw Rotation Calculation
             rotation_list = []
             for _, row in df_vec.iterrows():
                 if pd.isna(row["FL_X"]) or pd.isna(row["FR_X"]) or pd.isna(row["RL_X"]) or pd.isna(row["RR_X"]):
@@ -1531,7 +1498,6 @@ if uploaded_file is not None:
             df_vec["Rotation_Angle"] = rotation_list
             df_vec["WeekNum"] = df_vec["CalendarWeek"].str.replace("CW", "", regex=False).astype(int)
 
-            # Centroid Drift Standalone Controls
             available_cws_all = sorted(df_vec["CalendarWeek"].dropna().unique().tolist())
             total_cws_all = len(available_cws_all)
 
@@ -1551,7 +1517,6 @@ if uploaded_file is not None:
                 else:
                     df_centroid_raw = df_vec.copy()
 
-            # Weekly Aggregation
             df_weekly_centroids = (
                 df_centroid_raw.groupby("CalendarWeek")
                 .agg(
@@ -1564,7 +1529,6 @@ if uploaded_file is not None:
                 .sort_values("WeekNum")
             )
 
-            # Volume Filter Slider
             with col_c2:
                 weekly_counts = df_vec.groupby("CalendarWeek")["PartID"].count()
                 max_weekly_vol = int(weekly_counts.max()) if not weekly_counts.empty else 1
@@ -1580,14 +1544,12 @@ if uploaded_file is not None:
             valid_weeks = weekly_counts[weekly_counts >= min_vol].index.tolist()
             df_vec_filtered = df_vec[df_vec["CalendarWeek"].isin(valid_weeks)].copy()
 
-            # Centroid Drift Plot Construction
             col_v1, col_v2 = st.columns(2)
 
             with col_v1:
                 st.markdown("##### 📍 Weekly Centroid Macro Drift (Global X-Y Offset)")
                 fig_drift = go.Figure()
 
-                # Nominal Center Origin
                 fig_drift.add_trace(
                     go.Scatter(
                         x=[0],
@@ -1600,7 +1562,6 @@ if uploaded_file is not None:
                     )
                 )
 
-                # Individual Parts Dispersion
                 fig_drift.add_trace(
                     go.Scatter(
                         x=df_centroid_raw["Centroid_X"],
@@ -1612,7 +1573,6 @@ if uploaded_file is not None:
                     )
                 )
 
-                # Weekly Macro Trend Path
                 fig_drift.add_trace(
                     go.Scatter(
                         x=df_weekly_centroids["Mean_X"],
@@ -1673,22 +1633,17 @@ if uploaded_file is not None:
                     .reset_index()
                 )
 
-                # Magnitude Bar Trace with explicit Data Labels
                 fig_drift_rot.add_trace(
                     go.Bar(
                         x=weekly_vector["CalendarWeek"],
                         y=weekly_vector["Mean_Magnitude"],
                         name="Mean Drift [mm]",
                         marker_color="#0f766e",
-                        text=weekly_vector["Mean_Magnitude"].round(2).astype(str) + " mm",
-                        textposition="outside",
-                        textfont=dict(size=10),
                     ),
                     row=1,
                     col=1,
                 )
 
-                # Yaw Rotation Trace
                 fig_drift_rot.add_trace(
                     go.Scatter(
                         x=df_vec_filtered["CalendarWeek"],
@@ -1719,15 +1674,7 @@ if uploaded_file is not None:
                     col=1,
                 )
 
-                # Y-axis scaling for label headroom
-                max_mag = weekly_vector["Mean_Magnitude"].max() if not weekly_vector.empty else 1.0
-                fig_drift_rot.update_yaxes(
-                    title_text="Drift R (mm)",
-                    range=[0, max_mag * 1.25],
-                    row=1,
-                    col=1,
-                    showgrid=True,
-                )
+                fig_drift_rot.update_yaxes(title_text="Drift R (mm)", row=1, col=1, showgrid=True)
                 fig_drift_rot.update_yaxes(title_text="Yaw (°)", row=2, col=1, showgrid=True)
                 fig_drift_rot.update_xaxes(title_text="Calendar Week", row=2, col=1)
 
