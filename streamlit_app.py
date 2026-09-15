@@ -387,8 +387,9 @@ exclude_incomplete = st.sidebar.checkbox(
     value=False,
     help=(
         "Disabled (default): Evaluates strict first run (Run 1) accounting "
-        "for incomplete measurements in FPY and KPIs.\n"
-        "Enabled: Purges incomplete measurements and searches for the first 100% complete run."
+        "for incomplete measurements as a separate category.\\n"
+        "Enabled: Keeps strict first run (Run 1), but any missing-corner first run "
+        "is counted as NOK / FAIL for KPIs and first-run analysis."
     ),
 )
 
@@ -571,39 +572,32 @@ if uploaded_file is not None:
         df_summary = df_summary[cols]
 
         # Dataset Toggles
+        df_analysis = df_summary.copy()
+
+        first_run_records = []
+        for _, group in df_summary.groupby("PartID"):
+            r1 = group[group["RunNum"] == 1]
+            if not r1.empty:
+                first_run_records.append(r1.iloc[0])
+            else:
+                first_run_records.append(group.iloc[0])
+
+        df_first_valid = (
+            pd.DataFrame(first_run_records)
+            if first_run_records
+            else pd.DataFrame(columns=df_summary.columns)
+        )
+
         if exclude_incomplete:
-            df_analysis = df_summary[df_summary["IsComplete"] == True].copy()
+            df_first_valid = df_first_valid.copy()
+            df_first_valid.loc[
+                df_first_valid["MissingCorners"] > 0, "Status"
+            ] = "FAIL"
 
-            first_complete_records = []
-            for _, group in df_summary.groupby("PartID"):
-                complete_runs = group[group["IsComplete"] == True]
-                if not complete_runs.empty:
-                    first_complete_records.append(complete_runs.iloc[0])
-
-            df_first_valid = (
-                pd.DataFrame(first_complete_records)
-                if first_complete_records
-                else pd.DataFrame(columns=df_summary.columns)
-            )
             st.sidebar.warning(
-                "⚠️ **Filtered Mode:** Excluding incomplete measurements from KPIs"
-                " and plots."
-            )
-        else:
-            df_analysis = df_summary.copy()
-
-            first_run_records = []
-            for _, group in df_summary.groupby("PartID"):
-                r1 = group[group["RunNum"] == 1]
-                if not r1.empty:
-                    first_run_records.append(r1.iloc[0])
-                else:
-                    first_run_records.append(group.iloc[0])
-
-            df_first_valid = (
-                pd.DataFrame(first_run_records)
-                if first_run_records
-                else pd.DataFrame(columns=df_summary.columns)
+                "⚠️ **Filtered Mode:** Strict first run is preserved, but "
+                "missing-corner first runs are counted as NOK / FAIL in KPIs "
+                "and first-run analysis."
             )
 
         df_analysis["_mod_key"] = (
@@ -627,8 +621,8 @@ if uploaded_file is not None:
 
             if exclude_incomplete:
                 st.info(
-                    "ℹ️ **Active Filter:** Evaluating only batteries with"
-                    " **complete 4-corner measurements**."
+                    "ℹ️ **Active Filter:** Evaluating strict first run (Run 1), "
+                    "and any missing-corner first run is counted as **FAIL / NOK**."
                 )
 
             total_valid_modules = len(df_first_valid)
@@ -678,7 +672,6 @@ if uploaded_file is not None:
             with col_t2:
                 st.markdown("##### WEEKLY FPY TREND & PRODUCTION VOLUME")
                 
-                # --- Slider de ventana de promedio móvil (2 a 10 semanas) ---
                 ma_window = st.slider(
                     "Moving Average Window (Weeks):",
                     min_value=2,
@@ -710,18 +703,15 @@ if uploaded_file is not None:
                         })
                     df_weekly = pd.DataFrame(weekly_data)
 
-                    # Dynamic Moving Average calculation
                     df_weekly["MA_FPY"] = (
                         df_weekly["PassRate"].rolling(window=ma_window, min_periods=1).mean()
                     )
 
-                    # Volume scale limit
                     max_vol = df_weekly["Total"].max() if not df_weekly.empty else 10
                     vol_axis_max = max(max_vol * 2.2, 5)
 
                     fig_weekly = make_subplots(specs=[[{"secondary_y": True}]])
 
-                    # Volume Stacked Bars
                     fig_weekly.add_trace(
                         go.Bar(
                             x=df_weekly["CalendarWeek"],
@@ -760,7 +750,6 @@ if uploaded_file is not None:
                             secondary_y=True,
                         )
 
-                    # Weekly FPY Line
                     fpy_labels = [
                         f"{rate:.0f}%*" if low else f"{rate:.0f}%"
                         for rate, low in zip(df_weekly["PassRate"], df_weekly["LowSample"])
@@ -786,7 +775,6 @@ if uploaded_file is not None:
                         secondary_y=False,
                     )
 
-                    # Dynamic Moving Average Line
                     fig_weekly.add_trace(
                         go.Scatter(
                             x=df_weekly["CalendarWeek"],
@@ -799,7 +787,6 @@ if uploaded_file is not None:
                         secondary_y=False,
                     )
 
-                    # Target Line
                     fig_weekly.add_hline(
                         y=fpy_target,
                         line_dash="dot",
@@ -871,7 +858,6 @@ if uploaded_file is not None:
                     use_container_width=True,
                 )
 
-            # Quality by Battery Type & Week Range
             st.markdown("---")
             st.markdown("##### 📊 QUALITY BREAKDOWN BY BATTERY TYPE & WEEK RANGE (First Measurement)")
 
@@ -1335,7 +1321,6 @@ if uploaded_file is not None:
                     if not df_sq_filtered.empty:
                         col_sq1, col_sq2 = st.columns(2)
 
-                        # Chart 1: SQUARE OK vs DEFORMED % by Battery Type
                         with col_sq1:
                             sq_status_counts = (
                                 df_sq_filtered.groupby(["BatteryType", "Squareness Status"])
@@ -1391,7 +1376,6 @@ if uploaded_file is not None:
                             )
                             st.plotly_chart(fig_sq, use_container_width=True)
 
-                        # Chart 2: Root Cause Breakdown for DEFORMED Batteries
                         with col_sq2:
                             df_deformed_only = df_sq_filtered[df_sq_filtered["Squareness Status"] == "DEFORMED"].copy()
                             if not df_deformed_only.empty:
@@ -1493,13 +1477,11 @@ if uploaded_file is not None:
         with tab4:
             st.subheader("🧭 Vector Drift, Conveyor Tuning & Rotation Analysis")
 
-            # 1. Fuente de datos estricta: Solo Run 1 / First Valid
             df_vec = df_first_valid.copy()
             df_vec["Centroid_X"] = df_vec[["FL_X", "FR_X", "RL_X", "RR_X"]].mean(axis=1)
             df_vec["Centroid_Y"] = df_vec[["FL_Y", "FR_Y", "RL_Y", "RR_Y"]].mean(axis=1)
             df_vec["Vector_Magnitude"] = np.sqrt(df_vec["Centroid_X"] ** 2 + df_vec["Centroid_Y"] ** 2)
 
-            # Cálculo de rotación Yaw
             rotation_list = []
             for _, row in df_vec.iterrows():
                 if pd.isna(row["FL_X"]) or pd.isna(row["FR_X"]) or pd.isna(row["RL_X"]) or pd.isna(row["RR_X"]):
@@ -1525,9 +1507,6 @@ if uploaded_file is not None:
             df_vec["Rotation_Angle"] = rotation_list
             df_vec["WeekNum"] = df_vec["CalendarWeek"].str.replace("CW", "", regex=False).astype(int)
 
-            # ==================================================================
-            # CONTROL INDEPENDIENTE PARA CENTROID DRIFT (Ignora el slider de volumen)
-            # ==================================================================
             available_cws_all = sorted(df_vec["CalendarWeek"].dropna().unique().tolist())
             total_cws_all = len(available_cws_all)
 
@@ -1547,7 +1526,6 @@ if uploaded_file is not None:
                 else:
                     df_centroid_raw = df_vec.copy()
 
-            # Agrupación Semanal para Macro-Tendencia
             df_weekly_centroids = (
                 df_centroid_raw.groupby("CalendarWeek")
                 .agg(
@@ -1560,9 +1538,6 @@ if uploaded_file is not None:
                 .sort_values("WeekNum")
             )
 
-            # ==================================================================
-            # SLIDER DE VOLUMEN (Afecta únicamente a la gráfica de magnitudes inferiores)
-            # ==================================================================
             with col_c2:
                 weekly_counts = df_vec.groupby("CalendarWeek")["PartID"].count()
                 max_weekly_vol = int(weekly_counts.max()) if not weekly_counts.empty else 1
@@ -1578,16 +1553,12 @@ if uploaded_file is not None:
             valid_weeks = weekly_counts[weekly_counts >= min_vol].index.tolist()
             df_vec_filtered = df_vec[df_vec["CalendarWeek"].isin(valid_weeks)].copy()
 
-            # ==================================================================
-            # CONSTRUCCIÓN DEL GRÁFICO DE CENTROIDES MEJORADO
-            # ==================================================================
             col_v1, col_v2 = st.columns(2)
 
             with col_v1:
                 st.markdown("##### 📍 Weekly Centroid Macro Drift (Global X-Y Offset)")
                 fig_drift = go.Figure()
 
-                # 1. Origen Nominal (0,0)
                 fig_drift.add_trace(
                     go.Scatter(
                         x=[0],
@@ -1600,7 +1571,6 @@ if uploaded_file is not None:
                     )
                 )
 
-                # 2. Piezas individuales (Nube de dispersión ligera sin líneas)
                 fig_drift.add_trace(
                     go.Scatter(
                         x=df_centroid_raw["Centroid_X"],
@@ -1612,7 +1582,6 @@ if uploaded_file is not None:
                     )
                 )
 
-                # 3. Macro-Tendencia Semanal (Línea gruesa conectando promedios)
                 fig_drift.add_trace(
                     go.Scatter(
                         x=df_weekly_centroids["Mean_X"],
