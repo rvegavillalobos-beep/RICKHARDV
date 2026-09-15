@@ -372,7 +372,7 @@ def render_battery_corner_matrix(df_battery, battery_type_name, threshold_val):
 st.title("⚙️ Quality Control & Geometric Analysis")
 
 st.sidebar.header("🛠️ Configuration & Tolerances")
-fpy_ = st.sidebar.slider(
+fpy_target = st.sidebar.slider(
     "Target FPY [%]", 50.0, 100.0, 90.0, 5.0
 )
 max_diag_tol = st.sidebar.slider(
