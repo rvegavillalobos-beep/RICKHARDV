@@ -384,12 +384,12 @@ spec_limit = st.sidebar.slider(
 
 exclude_incomplete = st.sidebar.checkbox(
     "Exclude incomplete measurements (missing corners)",
-    value=False,
+    value=True,
     help=(
-        "Disabled (default): Evaluates strict first run (Run 1) accounting "
-        "for incomplete measurements as a separate category.\\n"
-        "Enabled: Keeps strict first run (Run 1), but any missing-corner first run "
-        "is counted as NOK / FAIL for KPIs and first-run analysis."
+        "Enabled by default: Keeps strict first run (Run 1), but any "
+        "missing-corner first run is counted as NOK / FAIL for KPIs and "
+        "first-run analysis.\\n"
+        "Disabled: Incomplete measurements remain as a separate category."
     ),
 )
 
@@ -578,9 +578,14 @@ if uploaded_file is not None:
         for _, group in df_summary.groupby("PartID"):
             r1 = group[group["RunNum"] == 1]
             if not r1.empty:
-                first_run_records.append(r1.iloc[0])
+                rec = r1.iloc[0].copy()
             else:
-                first_run_records.append(group.iloc[0])
+                rec = group.iloc[0].copy()
+
+            if exclude_incomplete and rec["MissingCorners"] > 0:
+                rec["Status"] = "FAIL"
+
+            first_run_records.append(rec)
 
         df_first_valid = (
             pd.DataFrame(first_run_records)
@@ -589,11 +594,6 @@ if uploaded_file is not None:
         )
 
         if exclude_incomplete:
-            df_first_valid = df_first_valid.copy()
-            df_first_valid.loc[
-                df_first_valid["MissingCorners"] > 0, "Status"
-            ] = "FAIL"
-
             st.sidebar.warning(
                 "⚠️ **Filtered Mode:** Strict first run is preserved, but "
                 "missing-corner first runs are counted as NOK / FAIL in KPIs "
@@ -642,22 +642,39 @@ if uploaded_file is not None:
                 else 0
             )
 
-            summary_table_data = {
-                "Metric": [
-                    "Total Unique Modules Evaluated",
-                    "Passed First Inspection (OK)",
-                    "Failed First Inspection (NOK)",
-                    "Incomplete Measurements",
-                    "First-Pass Yield (FPY)",
-                ],
-                "Value": [
-                    total_valid_modules,
-                    passed_valid,
-                    failed_valid,
-                    incomplete_valid,
-                    f"{fpy_val:.1f}%",
-                ],
-            }
+            if exclude_incomplete:
+                summary_table_data = {
+                    "Metric": [
+                        "Total Unique Modules Evaluated",
+                        "Passed First Inspection (OK)",
+                        "Failed First Inspection (NOK)",
+                        "First-Pass Yield (FPY)",
+                    ],
+                    "Value": [
+                        total_valid_modules,
+                        passed_valid,
+                        failed_valid,
+                        f"{fpy_val:.1f}%",
+                    ],
+                }
+            else:
+                summary_table_data = {
+                    "Metric": [
+                        "Total Unique Modules Evaluated",
+                        "Passed First Inspection (OK)",
+                        "Failed First Inspection (NOK)",
+                        "Incomplete Measurements",
+                        "First-Pass Yield (FPY)",
+                    ],
+                    "Value": [
+                        total_valid_modules,
+                        passed_valid,
+                        failed_valid,
+                        incomplete_valid,
+                        f"{fpy_val:.1f}%",
+                    ],
+                }
+
             df_quality_summary = pd.DataFrame(summary_table_data)
 
             col_t1, col_t2 = st.columns([1.2, 2.8])
@@ -688,7 +705,11 @@ if uploaded_file is not None:
                         w_total = len(w_group)
                         w_passed = len(w_group[w_group["Status"] == "PASS"])
                         w_failed = len(w_group[w_group["Status"] == "FAIL"])
-                        w_inc = len(w_group[w_group["Status"] == "INCOMPLETE"])
+
+                        if exclude_incomplete:
+                            w_inc = 0
+                        else:
+                            w_inc = len(w_group[w_group["Status"] == "INCOMPLETE"])
 
                         w_rate = (w_passed / w_total * 100) if w_total > 0 else 0
 
@@ -833,25 +854,45 @@ if uploaded_file is not None:
             st.markdown("---")
             st.markdown("##### 📅 WEEKLY PASS RATE & BREAKDOWN TABLE")
             if not df_first_valid.empty:
-                df_weekly_display = df_weekly[[
-                    "CalendarWeek",
-                    "Total",
-                    "Passed",
-                    "Failed",
-                    "Incomplete",
-                    "PassRate",
-                ]].copy()
-                df_weekly_display["PassRate"] = df_weekly_display[
-                    "PassRate"
-                ].apply(lambda x: f"{x:.1f}%")
-                df_weekly_display.columns = [
-                    "Calendar Week",
-                    "Total Parts",
-                    "Passed (OK)",
-                    "Failed (NOK)",
-                    "Incomplete",
-                    "Pass Rate (FPY)",
-                ]
+                if exclude_incomplete:
+                    df_weekly_display = df_weekly[[
+                        "CalendarWeek",
+                        "Total",
+                        "Passed",
+                        "Failed",
+                        "PassRate",
+                    ]].copy()
+                    df_weekly_display["PassRate"] = df_weekly_display[
+                        "PassRate"
+                    ].apply(lambda x: f"{x:.1f}%")
+                    df_weekly_display.columns = [
+                        "Calendar Week",
+                        "Total Parts",
+                        "Passed (OK)",
+                        "Failed (NOK)",
+                        "Pass Rate (FPY)",
+                    ]
+                else:
+                    df_weekly_display = df_weekly[[
+                        "CalendarWeek",
+                        "Total",
+                        "Passed",
+                        "Failed",
+                        "Incomplete",
+                        "PassRate",
+                    ]].copy()
+                    df_weekly_display["PassRate"] = df_weekly_display[
+                        "PassRate"
+                    ].apply(lambda x: f"{x:.1f}%")
+                    df_weekly_display.columns = [
+                        "Calendar Week",
+                        "Total Parts",
+                        "Passed (OK)",
+                        "Failed (NOK)",
+                        "Incomplete",
+                        "Pass Rate (FPY)",
+                    ]
+
                 st.dataframe(
                     df_weekly_display,
                     hide_index=True,
@@ -1321,6 +1362,7 @@ if uploaded_file is not None:
                     if not df_sq_filtered.empty:
                         col_sq1, col_sq2 = st.columns(2)
 
+                        # Chart 1: SQUARE OK vs DEFORMED % by Battery Type
                         with col_sq1:
                             sq_status_counts = (
                                 df_sq_filtered.groupby(["BatteryType", "Squareness Status"])
@@ -1376,6 +1418,7 @@ if uploaded_file is not None:
                             )
                             st.plotly_chart(fig_sq, use_container_width=True)
 
+                        # Chart 2: Root Cause Breakdown for DEFORMED Batteries
                         with col_sq2:
                             df_deformed_only = df_sq_filtered[df_sq_filtered["Squareness Status"] == "DEFORMED"].copy()
                             if not df_deformed_only.empty:
