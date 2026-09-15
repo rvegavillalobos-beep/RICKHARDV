@@ -678,7 +678,7 @@ if uploaded_file is not None:
             with col_t2:
                 st.markdown("##### WEEKLY FPY TREND & PRODUCTION VOLUME")
                 
-                # --- Slider de ventana de promedio móvil (2 a 10 semanas) ---
+                # Moving average window slider
                 ma_window = st.slider(
                     "Moving Average Window (Weeks):",
                     min_value=2,
@@ -721,7 +721,7 @@ if uploaded_file is not None:
 
                     fig_weekly = make_subplots(specs=[[{"secondary_y": True}]])
 
-                    # Volume Stacked Bars
+                    # Volume Stacked Bars with direct text labels
                     fig_weekly.add_trace(
                         go.Bar(
                             x=df_weekly["CalendarWeek"],
@@ -731,6 +731,8 @@ if uploaded_file is not None:
                                 color="rgba(16, 185, 129, 0.45)",
                                 line=dict(color="#10b981", width=1),
                             ),
+                            text=df_weekly["Passed"],
+                            textposition="inside",
                         ),
                         secondary_y=True,
                     )
@@ -743,6 +745,8 @@ if uploaded_file is not None:
                                 color="rgba(244, 63, 94, 0.45)",
                                 line=dict(color="#f43f5e", width=1),
                             ),
+                            text=df_weekly["Failed"],
+                            textposition="inside",
                         ),
                         secondary_y=True,
                     )
@@ -756,11 +760,13 @@ if uploaded_file is not None:
                                     color="rgba(156, 163, 175, 0.45)",
                                     line=dict(color="#9ca3af", width=1),
                                 ),
+                                text=df_weekly["Incomplete"],
+                                textposition="inside",
                             ),
                             secondary_y=True,
                         )
 
-                    # Weekly FPY Line
+                    # Weekly FPY Line with percentage tags
                     fpy_labels = [
                         f"{rate:.0f}%*" if low else f"{rate:.0f}%"
                         for rate, low in zip(df_weekly["PassRate"], df_weekly["LowSample"])
@@ -786,7 +792,7 @@ if uploaded_file is not None:
                         secondary_y=False,
                     )
 
-                    # Dynamic Moving Average Line
+                    # Moving Average Line
                     fig_weekly.add_trace(
                         go.Scatter(
                             x=df_weekly["CalendarWeek"],
@@ -925,7 +931,7 @@ if uploaded_file is not None:
                                 y=pct_vals,
                                 name=st_name,
                                 marker_color=status_colors[st_name],
-                                text=[f"{p:.1f}%<br>({c})" if p > 0 else "" for p, c in zip(pct_vals, cnt_vals)],
+                                text=[f"{p:.1f}% ({c})" if p > 0 else "" for p, c in zip(pct_vals, cnt_vals)],
                                 textposition="inside",
                                 hovertemplate=(
                                     "<b>Type: %{x}</b><br>"
@@ -1361,7 +1367,7 @@ if uploaded_file is not None:
                                         y=pct_vals,
                                         name=st_name,
                                         marker_color=sq_colors[st_name],
-                                        text=[f"{p:.1f}%<br>({c})" if p > 0 else "" for p, c in zip(pct_vals, cnt_vals)],
+                                        text=[f"{p:.1f}% ({c})" if p > 0 else "" for p, c in zip(pct_vals, cnt_vals)],
                                         textposition="inside",
                                         hovertemplate=(
                                             "<b>Type: %{x}</b><br>"
@@ -1433,7 +1439,7 @@ if uploaded_file is not None:
                                             y=pct_vals,
                                             name=c_cat,
                                             marker_color=cause_colors.get(c_cat, "#64748b"),
-                                            text=[f"{p:.1f}%<br>({c})" if p > 0 else "" for p, c in zip(pct_vals, cnt_vals)],
+                                            text=[f"{p:.1f}% ({c})" if p > 0 else "" for p, c in zip(pct_vals, cnt_vals)],
                                             textposition="inside",
                                             hovertemplate=(
                                                 "<b>Type: %{x}</b><br>"
@@ -1493,13 +1499,13 @@ if uploaded_file is not None:
         with tab4:
             st.subheader("🧭 Vector Drift, Conveyor Tuning & Rotation Analysis")
 
-            # 1. Fuente de datos estricta: Solo Run 1 / First Valid
+            # First Valid Run
             df_vec = df_first_valid.copy()
             df_vec["Centroid_X"] = df_vec[["FL_X", "FR_X", "RL_X", "RR_X"]].mean(axis=1)
             df_vec["Centroid_Y"] = df_vec[["FL_Y", "FR_Y", "RL_Y", "RR_Y"]].mean(axis=1)
             df_vec["Vector_Magnitude"] = np.sqrt(df_vec["Centroid_X"] ** 2 + df_vec["Centroid_Y"] ** 2)
 
-            # Cálculo de rotación Yaw
+            # Yaw Rotation Calculation
             rotation_list = []
             for _, row in df_vec.iterrows():
                 if pd.isna(row["FL_X"]) or pd.isna(row["FR_X"]) or pd.isna(row["RL_X"]) or pd.isna(row["RR_X"]):
@@ -1525,9 +1531,7 @@ if uploaded_file is not None:
             df_vec["Rotation_Angle"] = rotation_list
             df_vec["WeekNum"] = df_vec["CalendarWeek"].str.replace("CW", "", regex=False).astype(int)
 
-            # ==================================================================
-            # CONTROL INDEPENDIENTE PARA CENTROID DRIFT (Ignora el slider de volumen)
-            # ==================================================================
+            # Centroid Drift Standalone Controls
             available_cws_all = sorted(df_vec["CalendarWeek"].dropna().unique().tolist())
             total_cws_all = len(available_cws_all)
 
@@ -1547,7 +1551,7 @@ if uploaded_file is not None:
                 else:
                     df_centroid_raw = df_vec.copy()
 
-            # Agrupación Semanal para Macro-Tendencia
+            # Weekly Aggregation
             df_weekly_centroids = (
                 df_centroid_raw.groupby("CalendarWeek")
                 .agg(
@@ -1560,9 +1564,7 @@ if uploaded_file is not None:
                 .sort_values("WeekNum")
             )
 
-            # ==================================================================
-            # SLIDER DE VOLUMEN (Afecta únicamente a la gráfica de magnitudes inferiores)
-            # ==================================================================
+            # Volume Filter Slider
             with col_c2:
                 weekly_counts = df_vec.groupby("CalendarWeek")["PartID"].count()
                 max_weekly_vol = int(weekly_counts.max()) if not weekly_counts.empty else 1
@@ -1578,16 +1580,14 @@ if uploaded_file is not None:
             valid_weeks = weekly_counts[weekly_counts >= min_vol].index.tolist()
             df_vec_filtered = df_vec[df_vec["CalendarWeek"].isin(valid_weeks)].copy()
 
-            # ==================================================================
-            # CONSTRUCCIÓN DEL GRÁFICO DE CENTROIDES MEJORADO
-            # ==================================================================
+            # Centroid Drift Plot Construction
             col_v1, col_v2 = st.columns(2)
 
             with col_v1:
                 st.markdown("##### 📍 Weekly Centroid Macro Drift (Global X-Y Offset)")
                 fig_drift = go.Figure()
 
-                # 1. Origen Nominal (0,0)
+                # Nominal Center Origin
                 fig_drift.add_trace(
                     go.Scatter(
                         x=[0],
@@ -1600,7 +1600,7 @@ if uploaded_file is not None:
                     )
                 )
 
-                # 2. Piezas individuales (Nube de dispersión ligera sin líneas)
+                # Individual Parts Dispersion
                 fig_drift.add_trace(
                     go.Scatter(
                         x=df_centroid_raw["Centroid_X"],
@@ -1612,7 +1612,7 @@ if uploaded_file is not None:
                     )
                 )
 
-                # 3. Macro-Tendencia Semanal (Línea gruesa conectando promedios)
+                # Weekly Macro Trend Path
                 fig_drift.add_trace(
                     go.Scatter(
                         x=df_weekly_centroids["Mean_X"],
@@ -1673,17 +1673,22 @@ if uploaded_file is not None:
                     .reset_index()
                 )
 
+                # Magnitude Bar Trace with explicit Data Labels
                 fig_drift_rot.add_trace(
                     go.Bar(
                         x=weekly_vector["CalendarWeek"],
                         y=weekly_vector["Mean_Magnitude"],
                         name="Mean Drift [mm]",
                         marker_color="#0f766e",
+                        text=weekly_vector["Mean_Magnitude"].round(2).astype(str) + " mm",
+                        textposition="outside",
+                        textfont=dict(size=10),
                     ),
                     row=1,
                     col=1,
                 )
 
+                # Yaw Rotation Trace
                 fig_drift_rot.add_trace(
                     go.Scatter(
                         x=df_vec_filtered["CalendarWeek"],
@@ -1714,7 +1719,15 @@ if uploaded_file is not None:
                     col=1,
                 )
 
-                fig_drift_rot.update_yaxes(title_text="Drift R (mm)", row=1, col=1, showgrid=True)
+                # Y-axis scaling for label headroom
+                max_mag = weekly_vector["Mean_Magnitude"].max() if not weekly_vector.empty else 1.0
+                fig_drift_rot.update_yaxes(
+                    title_text="Drift R (mm)",
+                    range=[0, max_mag * 1.25],
+                    row=1,
+                    col=1,
+                    showgrid=True,
+                )
                 fig_drift_rot.update_yaxes(title_text="Yaw (°)", row=2, col=1, showgrid=True)
                 fig_drift_rot.update_xaxes(title_text="Calendar Week", row=2, col=1)
 
