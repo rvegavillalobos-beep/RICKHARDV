@@ -240,8 +240,6 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
 
     fig = go.Figure()
 
-    custom_cols = ["PartID", "Date_Str", "CalendarWeek", "Status"]
-
     fig.add_trace(
         go.Scatter(
             x=df_corner["Seq"],
@@ -250,10 +248,10 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
             name="X",
             line=dict(color="#D92B2B", width=1.5),
             marker=dict(size=4),
-            customdata=df_corner[custom_cols],
+            customdata=df_corner[["PartID", "Date_Str", "CalendarWeek"]],
             hovertemplate=(
                 "<b>Battery #%{x}</b><br>PartID: %{customdata[0]}<br>Date (MX):"
-                " %{customdata[1]}<br>CW: %{customdata[2]}<br>Status: %{customdata[3]}<br>Dev X: %{y:.2f}"
+                " %{customdata[1]}<br>CW: %{customdata[2]}<br>Dev X: %{y:.2f}"
                 " mm<extra></extra>"
             ),
         )
@@ -267,10 +265,10 @@ def plot_corner_deviation(df_corner, title_name, threshold_val):
             name="Y",
             line=dict(color="#27AE60", width=1.5),
             marker=dict(size=4),
-            customdata=df_corner[custom_cols],
+            customdata=df_corner[["PartID", "Date_Str", "CalendarWeek"]],
             hovertemplate=(
                 "<b>Battery #%{x}</b><br>PartID: %{customdata[0]}<br>Date (MX):"
-                " %{customdata[1]}<br>CW: %{customdata[2]}<br>Status: %{customdata[3]}<br>Dev Y: %{y:.2f}"
+                " %{customdata[1]}<br>CW: %{customdata[2]}<br>Dev Y: %{y:.2f}"
                 " mm<extra></extra>"
             ),
         )
@@ -848,45 +846,25 @@ if uploaded_file is not None:
             st.markdown("---")
             st.markdown("##### 📅 WEEKLY PASS RATE & BREAKDOWN TABLE")
             if not df_first_valid.empty:
-                if exclude_incomplete:
-                    df_weekly_display = df_weekly[[
-                        "CalendarWeek",
-                        "Total",
-                        "Passed",
-                        "Failed",
-                        "PassRate",
-                    ]].copy()
-                    df_weekly_display["PassRate"] = df_weekly_display[
-                        "PassRate"
-                    ].apply(lambda x: f"{x:.1f}%")
-                    df_weekly_display.columns = [
-                        "Calendar Week",
-                        "Total Parts",
-                        "Passed (OK)",
-                        "Failed (NOK)",
-                        "Pass Rate (FPY)",
-                    ]
-                else:
-                    df_weekly_display = df_weekly[[
-                        "CalendarWeek",
-                        "Total",
-                        "Passed",
-                        "Failed",
-                        "Incomplete",
-                        "PassRate",
-                    ]].copy()
-                    df_weekly_display["PassRate"] = df_weekly_display[
-                        "PassRate"
-                    ].apply(lambda x: f"{x:.1f}%")
-                    df_weekly_display.columns = [
-                        "Calendar Week",
-                        "Total Parts",
-                        "Passed (OK)",
-                        "Failed (NOK)",
-                        "Incomplete",
-                        "Pass Rate (FPY)",
-                    ]
-
+                df_weekly_display = df_weekly[[
+                    "CalendarWeek",
+                    "Total",
+                    "Passed",
+                    "Failed",
+                    "Incomplete",
+                    "PassRate",
+                ]].copy()
+                df_weekly_display["PassRate"] = df_weekly_display[
+                    "PassRate"
+                ].apply(lambda x: f"{x:.1f}%")
+                df_weekly_display.columns = [
+                    "Calendar Week",
+                    "Total Parts",
+                    "Passed (OK)",
+                    "Failed (NOK)",
+                    "Incomplete",
+                    "Pass Rate (FPY)",
+                ]
                 st.dataframe(
                     df_weekly_display,
                     hide_index=True,
@@ -917,19 +895,16 @@ if uploaded_file is not None:
                 df_filtered_t1 = df_first_valid[df_first_valid["CalendarWeek"].isin(active_weeks_t1)]
 
                 if not df_filtered_t1.empty:
-                    active_status_cats = ["PASS", "FAIL"] if exclude_incomplete else ["PASS", "INCOMPLETE", "FAIL"]
-
                     bt_status_counts = (
                         df_filtered_t1.groupby(["BatteryType", "Status"])
                         .size()
                         .unstack(fill_value=0)
                     )
 
-                    for col_status in active_status_cats:
+                    for col_status in ["PASS", "INCOMPLETE", "FAIL"]:
                         if col_status not in bt_status_counts.columns:
                             bt_status_counts[col_status] = 0
 
-                    bt_status_counts = bt_status_counts[active_status_cats]
                     bt_totals = bt_status_counts.sum(axis=1)
                     bt_status_pct = bt_status_counts.div(bt_totals, axis=0) * 100
 
@@ -940,7 +915,7 @@ if uploaded_file is not None:
                         "FAIL": "#ff4d4d",
                     }
 
-                    for st_name in active_status_cats:
+                    for st_name in ["PASS", "INCOMPLETE", "FAIL"]:
                         pct_vals = bt_status_pct[st_name]
                         cnt_vals = bt_status_counts[st_name]
 
@@ -998,7 +973,6 @@ if uploaded_file is not None:
                 b_type = row["BatteryType"]
                 dt = row["Date"]
                 p_id = row["PartID"]
-                status_val = row["Status"]
 
                 corner_map = {
                     "Front-Left": (row["FL_X"], row["FL_Y"]),
@@ -1017,7 +991,6 @@ if uploaded_file is not None:
                             "Corner": c_name,
                             "Dev_X": dx,
                             "Dev_Y": dy,
-                            "Status": status_val,
                         })
 
             df_corner_trends = pd.DataFrame(corner_records)
@@ -1155,33 +1128,27 @@ if uploaded_file is not None:
                     rl_x, rl_y = row["RL_X"], row["RL_Y"]
                     rr_x, rr_y = row["RR_X"], row["RR_Y"]
 
-                    nom = get_nominal_coordinates(row["BatteryType"])
-
-                    corners_raw = [
-                        ("RL", rl_x, rl_y, nom["RL_X"], nom["RL_Y"]),
-                        ("FL", fl_x, fl_y, nom["FL_X"], nom["FL_Y"]),
-                        ("FR", fr_x, fr_y, nom["FR_X"], nom["FR_Y"]),
-                        ("RR", rr_x, rr_y, nom["RR_X"], nom["RR_Y"]),
-                    ]
-
-                    valid_pts = []
-                    for c_name, dx, dy, nx, ny in corners_raw:
-                        if pd.notna(dx) and pd.notna(dy):
-                            act_x = nx + (dx * exaggeration)
-                            act_y = ny + (dy * exaggeration)
-                            valid_pts.append((c_name, act_x, act_y))
-
-                    if not valid_pts:
+                    if (
+                        pd.isna(fl_x)
+                        or pd.isna(fr_x)
+                        or pd.isna(rl_x)
+                        or pd.isna(rr_x)
+                    ):
                         continue
 
-                    is_complete_mod = (len(valid_pts) == 4)
+                    nom = get_nominal_coordinates(row["BatteryType"])
 
-                    if is_complete_mod:
-                        mod_x = [pt[1] for pt in valid_pts] + [valid_pts[0][1]]
-                        mod_y = [pt[2] for pt in valid_pts] + [valid_pts[0][2]]
-                    else:
-                        mod_x = [pt[1] for pt in valid_pts]
-                        mod_y = [pt[2] for pt in valid_pts]
+                    act_rl_x = nom["RL_X"] + (rl_x * exaggeration)
+                    act_rl_y = nom["RL_Y"] + (rl_y * exaggeration)
+                    act_fl_x = nom["FL_X"] + (fl_x * exaggeration)
+                    act_fl_y = nom["FL_Y"] + (fl_y * exaggeration)
+                    act_fr_x = nom["FR_X"] + (fr_x * exaggeration)
+                    act_fr_y = nom["FR_Y"] + (fr_y * exaggeration)
+                    act_rr_x = nom["RR_X"] + (rr_x * exaggeration)
+                    act_rr_y = nom["RR_Y"] + (rr_y * exaggeration)
+
+                    mod_x = [act_rl_x, act_fl_x, act_fr_x, act_rr_x, act_rl_x]
+                    mod_y = [act_rl_y, act_fl_y, act_fr_y, act_rr_y, act_rl_y]
 
                     mod_identifier = row["_mod_key"]
                     is_targeted = mod_identifier == selected_mod
@@ -1190,28 +1157,21 @@ if uploaded_file is not None:
                         color = "#00e6ff"
                         opacity = 1.0
                         width = 4
-                        dash_style = "solid"
                         label = f"⭐ {mod_identifier} [SELECTED]"
                     else:
                         status = row["Status"]
                         if status == "FAIL":
                             color = "red"
-                            dash_style = "solid"
-                            opacity = 0.8
-                            width = 2
                         elif status == "INCOMPLETE":
-                            color = "#f59e0b"
-                            dash_style = "dashdot"
-                            opacity = 0.8
-                            width = 2
+                            color = "orange"
                         else:
                             color = "gray"
-                            dash_style = "solid"
-                            opacity = 0.4
-                            width = 1
-
-                        inc_suffix = "" if is_complete_mod else f" [INCOMPLETE {len(valid_pts)}/4]"
-                        label = f"{row['PartID']} (Run {row['RunNum']}) [{status}]{inc_suffix}"
+                        opacity = 0.8 if status in ["FAIL", "INCOMPLETE"] else 0.4
+                        width = 2 if status in ["FAIL", "INCOMPLETE"] else 1
+                        label = (
+                            f"{row['PartID']} (Run {row['RunNum']})"
+                            f" [{status}]"
+                        )
 
                     fig.add_trace(
                         go.Scatter(
@@ -1219,7 +1179,7 @@ if uploaded_file is not None:
                             y=mod_y,
                             mode="lines+markers",
                             name=label,
-                            line=dict(color=color, width=width, dash=dash_style),
+                            line=dict(color=color, width=width),
                             marker=dict(size=6 if is_targeted else 4),
                             opacity=opacity,
                         )
@@ -1240,13 +1200,6 @@ if uploaded_file is not None:
             st.subheader(
                 "📐 Advanced Squareness & Deformation Root Cause Analysis"
             )
-
-            if not exclude_incomplete:
-                st.info(
-                    "ℹ️ **Note:** Squareness and diagonal deformation calculations strictly require all 4 corner coordinates. "
-                    "Incomplete measurements are excluded from these geometric calculations."
-                )
-
             squareness_records = []
 
             for _, row in df_analysis.iterrows():
@@ -1540,34 +1493,13 @@ if uploaded_file is not None:
         with tab4:
             st.subheader("🧭 Vector Drift, Conveyor Tuning & Rotation Analysis")
 
-            # Strict source data: Run 1 / First Valid according to toggle mode
+            # 1. Fuente de datos estricta: Solo Run 1 / First Valid
             df_vec = df_first_valid.copy()
+            df_vec["Centroid_X"] = df_vec[["FL_X", "FR_X", "RL_X", "RR_X"]].mean(axis=1)
+            df_vec["Centroid_Y"] = df_vec[["FL_Y", "FR_Y", "RL_Y", "RR_Y"]].mean(axis=1)
+            df_vec["Vector_Magnitude"] = np.sqrt(df_vec["Centroid_X"] ** 2 + df_vec["Centroid_Y"] ** 2)
 
-            # Centroid calculations require all 4 corners to prevent math distortion on incomplete parts
-            has_4_corners = (
-                df_vec["FL_X"].notna()
-                & df_vec["FR_X"].notna()
-                & df_vec["RL_X"].notna()
-                & df_vec["RR_X"].notna()
-            )
-
-            df_vec["Centroid_X"] = np.where(
-                has_4_corners,
-                df_vec[["FL_X", "FR_X", "RL_X", "RR_X"]].mean(axis=1),
-                np.nan,
-            )
-            df_vec["Centroid_Y"] = np.where(
-                has_4_corners,
-                df_vec[["FL_Y", "FR_Y", "RL_Y", "RR_Y"]].mean(axis=1),
-                np.nan,
-            )
-            df_vec["Vector_Magnitude"] = np.where(
-                has_4_corners,
-                np.sqrt(df_vec["Centroid_X"] ** 2 + df_vec["Centroid_Y"] ** 2),
-                np.nan,
-            )
-
-            # Yaw Rotation Calculation
+            # Cálculo de rotación Yaw
             rotation_list = []
             for _, row in df_vec.iterrows():
                 if pd.isna(row["FL_X"]) or pd.isna(row["FR_X"]) or pd.isna(row["RL_X"]) or pd.isna(row["RR_X"]):
@@ -1593,7 +1525,9 @@ if uploaded_file is not None:
             df_vec["Rotation_Angle"] = rotation_list
             df_vec["WeekNum"] = df_vec["CalendarWeek"].str.replace("CW", "", regex=False).astype(int)
 
-            # Standalone Control for Centroid Drift
+            # ==================================================================
+            # CONTROL INDEPENDIENTE PARA CENTROID DRIFT (Ignora el slider de volumen)
+            # ==================================================================
             available_cws_all = sorted(df_vec["CalendarWeek"].dropna().unique().tolist())
             total_cws_all = len(available_cws_all)
 
@@ -1613,11 +1547,9 @@ if uploaded_file is not None:
                 else:
                     df_centroid_raw = df_vec.copy()
 
-            # Filter valid centroids for macro-trend path calculations
-            df_centroid_valid = df_centroid_raw[df_centroid_raw["Centroid_X"].notna()].copy()
-
+            # Agrupación Semanal para Macro-Tendencia
             df_weekly_centroids = (
-                df_centroid_valid.groupby("CalendarWeek")
+                df_centroid_raw.groupby("CalendarWeek")
                 .agg(
                     Mean_X=("Centroid_X", "mean"),
                     Mean_Y=("Centroid_Y", "mean"),
@@ -1628,7 +1560,9 @@ if uploaded_file is not None:
                 .sort_values("WeekNum")
             )
 
-            # Volume Filter Slider (For Bottom Graphs)
+            # ==================================================================
+            # SLIDER DE VOLUMEN (Afecta únicamente a la gráfica de magnitudes inferiores)
+            # ==================================================================
             with col_c2:
                 weekly_counts = df_vec.groupby("CalendarWeek")["PartID"].count()
                 max_weekly_vol = int(weekly_counts.max()) if not weekly_counts.empty else 1
@@ -1644,12 +1578,16 @@ if uploaded_file is not None:
             valid_weeks = weekly_counts[weekly_counts >= min_vol].index.tolist()
             df_vec_filtered = df_vec[df_vec["CalendarWeek"].isin(valid_weeks)].copy()
 
+            # ==================================================================
+            # CONSTRUCCIÓN DEL GRÁFICO DE CENTROIDES MEJORADO
+            # ==================================================================
             col_v1, col_v2 = st.columns(2)
 
             with col_v1:
                 st.markdown("##### 📍 Weekly Centroid Macro Drift (Global X-Y Offset)")
                 fig_drift = go.Figure()
 
+                # 1. Origen Nominal (0,0)
                 fig_drift.add_trace(
                     go.Scatter(
                         x=[0],
@@ -1662,10 +1600,11 @@ if uploaded_file is not None:
                     )
                 )
 
+                # 2. Piezas individuales (Nube de dispersión ligera sin líneas)
                 fig_drift.add_trace(
                     go.Scatter(
-                        x=df_centroid_valid["Centroid_X"],
-                        y=df_centroid_valid["Centroid_Y"],
+                        x=df_centroid_raw["Centroid_X"],
+                        y=df_centroid_raw["Centroid_Y"],
                         mode="markers",
                         marker=dict(size=5, color="#9ca3af", opacity=0.35),
                         name="Individual Parts",
@@ -1673,6 +1612,7 @@ if uploaded_file is not None:
                     )
                 )
 
+                # 3. Macro-Tendencia Semanal (Línea gruesa conectando promedios)
                 fig_drift.add_trace(
                     go.Scatter(
                         x=df_weekly_centroids["Mean_X"],
@@ -1725,8 +1665,7 @@ if uploaded_file is not None:
                 )
 
                 weekly_vector = (
-                    df_vec_filtered[df_vec_filtered["Vector_Magnitude"].notna()]
-                    .groupby("CalendarWeek")
+                    df_vec_filtered.groupby("CalendarWeek")
                     .agg(
                         Mean_Magnitude=("Vector_Magnitude", "mean"),
                         Total_Modules=("PartID", "count"),
