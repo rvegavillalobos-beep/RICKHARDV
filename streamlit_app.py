@@ -81,18 +81,19 @@ def extract_corner_index(feature_name, part_id):
 def get_nominal_coordinates(bat_type):
     if str(bat_type).upper() == "TYPE S":
         return {
-            "FL_X": 2290.48, "FL_Y": 559.4,
+            "FL_X": 2290.48, "FL_Y": -559.4,
             "FR_X": 2290.48, "FR_Y": 558.9,
-            "RL_X": 997.28, "RL_Y": 559.4,
+            "RL_X": 997.28, "RL_Y": -559.4,
             "RR_X": 997.28, "RR_Y": 511.1,
         }
     else:
         return {
-            "FL_X": 2290.48, "FL_Y": 559.4,
+            "FL_X": 2290.48, "FL_Y": -559.4,
             "FR_X": 2290.48, "FR_Y": 558.9,
-            "RL_X": 609.31, "RL_Y": 583.3,
+            "RL_X": 609.31, "RL_Y": -583.3,
             "RR_X": 609.31, "RR_Y": 535.0,
         }
+
 
 
 def calculate_corner_angle(a, b, c):
