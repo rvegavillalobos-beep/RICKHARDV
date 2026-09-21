@@ -79,6 +79,8 @@ def extract_corner_index(feature_name, part_id):
 
 
 def get_nominal_coordinates(bat_type):
+    # NOTE: Sign of FL_Y and RL_Y corrected to negative (left-side corners
+    # must sit on the opposite side of the Y axis relative to FR/RR).
     if str(bat_type).upper() == "TYPE S":
         return {
             "FL_X": 2290.48, "FL_Y": -559.4,
@@ -93,7 +95,6 @@ def get_nominal_coordinates(bat_type):
             "RL_X": 609.31, "RL_Y": -583.3,
             "RR_X": 609.31, "RR_Y": 535.0,
         }
-
 
 
 def calculate_corner_angle(a, b, c):
@@ -135,7 +136,7 @@ def add_centroid_and_rotation(df):
     BatteryType column, returns a COPY with added columns:
       Centroid_X, Centroid_Y, Vector_Magnitude, Rotation_Angle
     This reuses exactly the same logic already used in the Vector Drift tab,
-    so it can be shared safely with the new Compensation Advisor tab.
+    so it can be shared safely with the Compensation Advisor tab.
     """
     df_out = df.copy()
     df_out["Centroid_X"] = df_out[["FL_X", "FR_X", "RL_X", "RR_X"]].mean(axis=1)
@@ -172,11 +173,10 @@ def add_centroid_and_rotation(df):
 def order_corners_convex(points_dict):
     """
     points_dict: {"FL": (x, y), "FR": (x, y), "RL": (x, y), "RR": (x, y)}
-    Devuelve la lista de nombres de esquina ordenados por ángulo alrededor
-    del centroide, garantizando un polígono simple (sin auto-intersección),
-    incluso si el Exaggeration Factor invierte el orden relativo de dos
-    esquinas muy cercanas entre sí (como FL/FR en este dataset, separadas
-    nominalmente por solo 0.5 mm).
+    Returns the corner names ordered by angle around the centroid,
+    guaranteeing a simple polygon (no self-intersection), even if the
+    Exaggeration Factor flips the relative order of two very close corners
+    (such as FL/FR in this dataset, nominally separated by only 0.5 mm).
     """
     cx = np.mean([p[0] for p in points_dict.values()])
     cy = np.mean([p[1] for p in points_dict.values()])
@@ -327,7 +327,7 @@ def render_battery_corner_matrix(df_battery, battery_type_name, threshold_val):
 
 
 # ==============================================================================
-# COMPENSATION ADVISOR - NEW HELPER FUNCTIONS
+# COMPENSATION ADVISOR - HELPER FUNCTIONS
 # ==============================================================================
 
 CORNER_NAMES = ["FL", "FR", "RL", "RR"]
@@ -389,7 +389,7 @@ def get_nominal_center(nom):
 def compute_corner_offsets(bat_type, rec_x, rec_y, rec_yaw):
     """
     Derives the equivalent per-corner displacement of applying the
-    recommended rigid compensation (rec_x, rec_y, rec_yaw) to the nominal
+    applied rigid compensation (rec_x, rec_y, rec_yaw) to the nominal
     polygon of a given BatteryType. These are NOT independently optimized;
     they are a direct consequence of the rigid roto-translation.
     """
@@ -1386,15 +1386,17 @@ if uploaded_file is not None:
         with tab5:
             st.subheader("🛠️ Compensation Advisor (Rigid Roto-Translation)")
             st.caption(
-                "Estima un offset de compensación **rígido** (traslación X/Y + rotación yaw) "
-                "por BatteryType, basado en el comportamiento reciente (mediana), y simula su "
-                "impacto histórico sobre el FPY. Pivot de rotación: **centro nominal global del "
-                "módulo** (promedio de las 4 esquinas nominales). No se modifica df_first_valid "
-                "ni df_analysis; todo se calcula sobre copias."
+                "Estimates a **rigid** compensation offset (X/Y translation + yaw rotation) "
+                "per Battery Type, based on recent process behavior (median), and simulates its "
+                "historical impact on FPY. Rotation pivot: **nominal global center of the "
+                "module** (average of the 4 nominal corners). df_first_valid and df_analysis "
+                "are never modified; all calculations run on copies. Use the manual override "
+                "controls below to test custom compensation values and see the impact update "
+                "in real time across the whole tab."
             )
 
             if df_first_valid.empty:
-                st.info("No hay datos de First Run disponibles para calcular compensación.")
+                st.info("No First Run data available to calculate compensation.")
             else:
                 df_vec_all = add_centroid_and_rotation(df_first_valid)
                 df_vec_all["WeekNum"] = df_vec_all["CalendarWeek"].str.replace("CW", "", regex=False).astype(int)
@@ -1407,16 +1409,16 @@ if uploaded_file is not None:
 
                 with ctrl_c2:
                     window_mode = st.radio(
-                        "Ventana de análisis:", ["Últimas N semanas", "Rango manual de semanas"],
+                        "Analysis Window:", ["Last N Weeks", "Manual Week Range"],
                         horizontal=True, key="comp_window_mode",
                     )
 
                 available_weeks_c = sorted(df_vec_all["CalendarWeek"].dropna().unique().tolist())
 
-                if window_mode == "Últimas N semanas":
+                if window_mode == "Last N Weeks":
                     with ctrl_c3:
                         n_weeks_comp = st.number_input(
-                            "N semanas:", min_value=1, max_value=max(1, len(available_weeks_c)),
+                            "Number of Weeks:", min_value=1, max_value=max(1, len(available_weeks_c)),
                             value=min(6, max(1, len(available_weeks_c))), step=1, key="comp_n_weeks",
                         )
                     active_weeks_comp = available_weeks_c[-int(n_weeks_comp):] if available_weeks_c else []
@@ -1424,7 +1426,7 @@ if uploaded_file is not None:
                     with ctrl_c3:
                         if len(available_weeks_c) > 1:
                             sel_weeks_comp = st.select_slider(
-                                "Rango de semanas:", options=available_weeks_c,
+                                "Week Range:", options=available_weeks_c,
                                 value=(available_weeks_c[0], available_weeks_c[-1]), key="comp_week_range",
                             )
                             idx_min = available_weeks_c.index(sel_weeks_comp[0])
@@ -1435,12 +1437,12 @@ if uploaded_file is not None:
 
                 with ctrl_c4:
                     robust_method = st.selectbox(
-                        "Método robusto:", ["Mediana (recomendado)", "Media"], key="comp_robust_method",
+                        "Robust Method:", ["Median (recommended)", "Mean"], key="comp_robust_method",
                     )
-                    method_key = "median" if "Mediana" in robust_method else "mean"
+                    method_key = "median" if "Median" in robust_method else "mean"
 
                 min_sample_size = st.slider(
-                    "Muestra mínima requerida por BatteryType (piezas):",
+                    "Minimum Required Sample Size per Battery Type (units):",
                     min_value=1, max_value=200, value=10, step=1, key="comp_min_sample",
                 )
 
@@ -1449,11 +1451,18 @@ if uploaded_file is not None:
                     df_window = df_window[df_window["BatteryType"] == bt_choice].copy()
 
                 if df_window.empty:
-                    st.warning("No hay datos en la ventana seleccionada.")
+                    st.warning("No data available in the selected window.")
                 else:
                     types_to_process = (
                         [bt_choice] if bt_choice != "All"
                         else sorted(df_window["BatteryType"].dropna().unique().tolist())
+                    )
+
+                    st.markdown("##### 🎛️ SUGGESTED vs MANUAL COMPENSATION")
+                    st.caption(
+                        "Enable the manual override for a Battery Type to freely adjust its "
+                        "X/Y/Yaw compensation values. All KPIs, charts and tables below "
+                        "recalculate instantly based on the active (suggested or manual) values."
                     )
 
                     comp_summary_rows = []
@@ -1475,8 +1484,48 @@ if uploaded_file is not None:
                         rec_y = -median_cy if pd.notna(median_cy) else np.nan
                         rec_yaw = -median_yaw if pd.notna(median_yaw) else np.nan
 
-                        if pd.notna(rec_x) and pd.notna(rec_y) and pd.notna(rec_yaw):
-                            df_sim = simulate_compensation(df_type_window, rec_x, rec_y, rec_yaw, spec_limit)
+                        st.markdown(f"**{b_type}** — N = {n_samples} — Confidence: **{'LOW / UNSTABLE' if low_confidence else 'OK'}**")
+                        manual_override = st.checkbox(
+                            f"Enable manual override for {b_type}",
+                            key=f"manual_override_{b_type}",
+                        )
+
+                        if manual_override:
+                            mo_c1, mo_c2, mo_c3 = st.columns(3)
+                            with mo_c1:
+                                applied_x = st.number_input(
+                                    f"Manual X Offset [mm] ({b_type})",
+                                    value=float(rec_x) if pd.notna(rec_x) else 0.0,
+                                    step=0.05, format="%.3f", key=f"manual_x_{b_type}",
+                                )
+                            with mo_c2:
+                                applied_y = st.number_input(
+                                    f"Manual Y Offset [mm] ({b_type})",
+                                    value=float(rec_y) if pd.notna(rec_y) else 0.0,
+                                    step=0.05, format="%.3f", key=f"manual_y_{b_type}",
+                                )
+                            with mo_c3:
+                                applied_yaw = st.number_input(
+                                    f"Manual Yaw Offset [°] ({b_type})",
+                                    value=float(rec_yaw) if pd.notna(rec_yaw) else 0.0,
+                                    step=0.01, format="%.3f", key=f"manual_yaw_{b_type}",
+                                )
+                            st.caption(
+                                f"🔧 Using MANUAL values for {b_type}: "
+                                f"X = {applied_x:+.3f} mm | Y = {applied_y:+.3f} mm | Yaw = {applied_yaw:+.3f}°"
+                            )
+                        else:
+                            applied_x, applied_y, applied_yaw = rec_x, rec_y, rec_yaw
+                            if pd.notna(applied_x):
+                                st.caption(
+                                    f"✅ Using SUGGESTED values for {b_type}: "
+                                    f"X = {applied_x:+.3f} mm | Y = {applied_y:+.3f} mm | Yaw = {applied_yaw:+.3f}°"
+                                )
+                            else:
+                                st.caption("No suggested values available (insufficient data).")
+
+                        if pd.notna(applied_x) and pd.notna(applied_y) and pd.notna(applied_yaw):
+                            df_sim = simulate_compensation(df_type_window, applied_x, applied_y, applied_yaw, spec_limit)
                             df_sim_geo = build_sim_geometry(df_sim)
                         else:
                             df_sim = df_type_window.copy()
@@ -1496,9 +1545,13 @@ if uploaded_file is not None:
                             "Median Centroid_X [mm]": round(median_cx, 3) if pd.notna(median_cx) else np.nan,
                             "Median Centroid_Y [mm]": round(median_cy, 3) if pd.notna(median_cy) else np.nan,
                             "Median Yaw [°]": round(median_yaw, 3) if pd.notna(median_yaw) else np.nan,
-                            "Recommended_X_Offset_mm": round(rec_x, 3) if pd.notna(rec_x) else np.nan,
-                            "Recommended_Y_Offset_mm": round(rec_y, 3) if pd.notna(rec_y) else np.nan,
-                            "Recommended_Yaw_Offset_deg": round(rec_yaw, 3) if pd.notna(rec_yaw) else np.nan,
+                            "Suggested_X_Offset_mm": round(rec_x, 3) if pd.notna(rec_x) else np.nan,
+                            "Suggested_Y_Offset_mm": round(rec_y, 3) if pd.notna(rec_y) else np.nan,
+                            "Suggested_Yaw_Offset_deg": round(rec_yaw, 3) if pd.notna(rec_yaw) else np.nan,
+                            "Applied_X_Offset_mm": round(applied_x, 3) if pd.notna(applied_x) else np.nan,
+                            "Applied_Y_Offset_mm": round(applied_y, 3) if pd.notna(applied_y) else np.nan,
+                            "Applied_Yaw_Offset_deg": round(applied_yaw, 3) if pd.notna(applied_yaw) else np.nan,
+                            "Manual_Override": "YES" if manual_override else "NO",
                             "Real FPY [%]": round(real_fpy, 1), "Simulated FPY [%]": round(sim_fpy, 1),
                             "Delta FPY [pp]": round(sim_fpy - real_fpy, 1),
                             "Std_X": round(bias["Centroid_X"]["std"], 3) if pd.notna(bias["Centroid_X"]["std"]) else np.nan,
@@ -1507,14 +1560,16 @@ if uploaded_file is not None:
                             "Confidence": "LOW / UNSTABLE" if low_confidence else "OK",
                         })
 
-                        if pd.notna(rec_x) and pd.notna(rec_y) and pd.notna(rec_yaw):
-                            corner_offset_frames.append(compute_corner_offsets(b_type, rec_x, rec_y, rec_yaw))
+                        if pd.notna(applied_x) and pd.notna(applied_y) and pd.notna(applied_yaw):
+                            corner_offset_frames.append(compute_corner_offsets(b_type, applied_x, applied_y, applied_yaw))
 
                         df_sim_detail_type = df_sim.copy()
                         df_sim_detail_type["Centroid_X_Sim"] = df_sim_geo["Centroid_X"]
                         df_sim_detail_type["Centroid_Y_Sim"] = df_sim_geo["Centroid_Y"]
                         df_sim_detail_type["Rotation_Angle_Sim"] = df_sim_geo["Rotation_Angle"]
                         sim_detail_frames.append(df_sim_detail_type)
+
+                        st.markdown("---")
 
                     df_comp_summary = pd.DataFrame(comp_summary_rows)
                     df_corner_offsets = (
@@ -1525,20 +1580,21 @@ if uploaded_file is not None:
 
                     st.markdown("##### 📌 COMPENSATION SUMMARY")
                     for _, r in df_comp_summary.iterrows():
-                        st.markdown(f"**{r['BatteryType']}** — N = {r['N Samples']} — Confidence: **{r['Confidence']}**")
+                        mode_label = "MANUAL" if r["Manual_Override"] == "YES" else "SUGGESTED"
+                        st.markdown(f"**{r['BatteryType']}** — N = {r['N Samples']} — Confidence: **{r['Confidence']}** — Mode: **{mode_label}**")
                         k1, k2, k3, k4, k5, k6, k7 = st.columns(7)
-                        k1.metric("Rec. X Offset", f"{r['Recommended_X_Offset_mm']:.2f} mm" if pd.notna(r["Recommended_X_Offset_mm"]) else "N/A")
-                        k2.metric("Rec. Y Offset", f"{r['Recommended_Y_Offset_mm']:.2f} mm" if pd.notna(r["Recommended_Y_Offset_mm"]) else "N/A")
-                        k3.metric("Rec. Yaw Offset", f"{r['Recommended_Yaw_Offset_deg']:.3f}°" if pd.notna(r["Recommended_Yaw_Offset_deg"]) else "N/A")
+                        k1.metric("Applied X Offset", f"{r['Applied_X_Offset_mm']:.2f} mm" if pd.notna(r["Applied_X_Offset_mm"]) else "N/A")
+                        k2.metric("Applied Y Offset", f"{r['Applied_Y_Offset_mm']:.2f} mm" if pd.notna(r["Applied_Y_Offset_mm"]) else "N/A")
+                        k3.metric("Applied Yaw Offset", f"{r['Applied_Yaw_Offset_deg']:.3f}°" if pd.notna(r["Applied_Yaw_Offset_deg"]) else "N/A")
                         k4.metric("Sample Size", int(r["N Samples"]))
-                        k5.metric("FPY Original", f"{r['Real FPY [%]']:.1f}%")
-                        k6.metric("FPY Simulated", f"{r['Simulated FPY [%]']:.1f}%")
+                        k5.metric("Original FPY", f"{r['Real FPY [%]']:.1f}%")
+                        k6.metric("Simulated FPY", f"{r['Simulated FPY [%]']:.1f}%")
                         k7.metric("Δ FPY", f"{r['Delta FPY [pp]']:+.1f} pp")
                         if r["Confidence"] == "LOW / UNSTABLE":
                             st.warning(
-                                f"⚠️ Muestra insuficiente o proceso inestable para {r['BatteryType']} "
-                                f"(N={r['N Samples']}, mínimo requerido={min_sample_size}). "
-                                "La recomendación debe tomarse con precaución."
+                                f"⚠️ Insufficient sample size or unstable process for {r['BatteryType']} "
+                                f"(N={r['N Samples']}, minimum required={min_sample_size}). "
+                                "This recommendation should be used with caution."
                             )
                         st.markdown("---")
 
@@ -1599,9 +1655,10 @@ if uploaded_file is not None:
                                     x=[0, r["Median Centroid_X [mm]"]], y=[0, r["Median Centroid_Y [mm]"]],
                                     mode="lines+markers", name=f"Observed Bias ({r['BatteryType']})", line=dict(color="#ef4444", width=3),
                                 ))
+                            if pd.notna(r["Applied_X_Offset_mm"]):
                                 fig_vec.add_trace(go.Scatter(
-                                    x=[0, r["Recommended_X_Offset_mm"]], y=[0, r["Recommended_Y_Offset_mm"]],
-                                    mode="lines+markers", name=f"Recommended Offset ({r['BatteryType']})",
+                                    x=[0, r["Applied_X_Offset_mm"]], y=[0, r["Applied_Y_Offset_mm"]],
+                                    mode="lines+markers", name=f"Applied Offset ({r['BatteryType']})",
                                     line=dict(color="#2563eb", width=3, dash="dash"),
                                 ))
                         fig_vec.update_layout(
@@ -1713,7 +1770,7 @@ if uploaded_file is not None:
                                 st.session_state["selected_mod_target"] = new_target_sim
                                 st.rerun()
                     else:
-                        st.info("No hay datos de simulación disponibles para mostrar.")
+                        st.info("No simulation data available to display.")
 
         # ==========================================================
         # EXCEL EXPORT
