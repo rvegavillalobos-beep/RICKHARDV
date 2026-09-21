@@ -1431,7 +1431,7 @@ if uploaded_file is not None:
         # TAB 5 - Compensation Calculator
         # ==========================================================
         with tab5:
-            st.subheader("🛠️ Compensation Calculator (Rigid Roto-Translation)")
+            st.subheader("🛠️ Compensation Calculator")
             st.caption(
                 "Estimates a **rigid** compensation offset (X/Y translation + yaw rotation) "
                 "per Battery Type, based on recent process behavior (median), and simulates its "
