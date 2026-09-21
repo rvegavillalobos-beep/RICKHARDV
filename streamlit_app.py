@@ -168,6 +168,25 @@ def add_centroid_and_rotation(df):
     return df_out
 
 
+def order_corners_convex(points_dict):
+    """
+    points_dict: {"FL": (x, y), "FR": (x, y), "RL": (x, y), "RR": (x, y)}
+    Devuelve la lista de nombres de esquina ordenados por ángulo alrededor
+    del centroide, garantizando un polígono simple (sin auto-intersección),
+    incluso si el Exaggeration Factor invierte el orden relativo de dos
+    esquinas muy cercanas entre sí (como FL/FR en este dataset, separadas
+    nominalmente por solo 0.5 mm).
+    """
+    cx = np.mean([p[0] for p in points_dict.values()])
+    cy = np.mean([p[1] for p in points_dict.values()])
+
+    def angle(name):
+        x, y = points_dict[name]
+        return np.arctan2(y - cy, x - cx)
+
+    return sorted(points_dict.keys(), key=angle)
+
+
 # ==============================================================================
 # STYLING FUNCTIONS
 # ==============================================================================
@@ -913,7 +932,7 @@ if uploaded_file is not None:
                 st.warning("Insufficient complete 4-corner data to generate trend plots.")
 
         # ==========================================================
-        # TAB 2
+        # TAB 2 (FIXED: convex-ordered polygon to avoid self-crossing)
         # ==========================================================
         with tab2:
             st.subheader("📈 Real Geometric Visualization (Permanent Tolerance Zones)")
@@ -954,8 +973,17 @@ if uploaded_file is not None:
 
                 for b_type in all_battery_types:
                     nom = get_nominal_coordinates(b_type)
-                    nom_x = [nom["RL_X"], nom["FL_X"], nom["FR_X"], nom["RR_X"], nom["RL_X"]]
-                    nom_y = [nom["RL_Y"], nom["FL_Y"], nom["FR_Y"], nom["RR_Y"], nom["RL_Y"]]
+
+                    nom_points = {
+                        "FL": (nom["FL_X"], nom["FL_Y"]),
+                        "FR": (nom["FR_X"], nom["FR_Y"]),
+                        "RL": (nom["RL_X"], nom["RL_Y"]),
+                        "RR": (nom["RR_X"], nom["RR_Y"]),
+                    }
+                    order = order_corners_convex(nom_points)
+                    nom_x = [nom_points[c][0] for c in order] + [nom_points[order[0]][0]]
+                    nom_y = [nom_points[c][1] for c in order] + [nom_points[order[0]][1]]
+
                     fig.add_trace(
                         go.Scatter(
                             x=nom_x, y=nom_y, mode="lines", name=f"Nominal Baseline ({b_type})",
@@ -963,10 +991,7 @@ if uploaded_file is not None:
                         )
                     )
 
-                    corners_dict = {
-                        "FL": (nom["FL_X"], nom["FL_Y"]), "FR": (nom["FR_X"], nom["FR_Y"]),
-                        "RL": (nom["RL_X"], nom["RL_Y"]), "RR": (nom["RR_X"], nom["RR_Y"]),
-                    }
+                    corners_dict = nom_points
                     for c_name, (cx, cy) in corners_dict.items():
                         eff_limit = spec_limit * exaggeration
                         t_xmin, t_xmax = cx - eff_limit, cx + eff_limit
@@ -992,17 +1017,16 @@ if uploaded_file is not None:
                         continue
 
                     nom = get_nominal_coordinates(row["BatteryType"])
-                    act_rl_x = nom["RL_X"] + (rl_x * exaggeration)
-                    act_rl_y = nom["RL_Y"] + (rl_y * exaggeration)
-                    act_fl_x = nom["FL_X"] + (fl_x * exaggeration)
-                    act_fl_y = nom["FL_Y"] + (fl_y * exaggeration)
-                    act_fr_x = nom["FR_X"] + (fr_x * exaggeration)
-                    act_fr_y = nom["FR_Y"] + (fr_y * exaggeration)
-                    act_rr_x = nom["RR_X"] + (rr_x * exaggeration)
-                    act_rr_y = nom["RR_Y"] + (rr_y * exaggeration)
+                    act_points = {
+                        "FL": (nom["FL_X"] + (fl_x * exaggeration), nom["FL_Y"] + (fl_y * exaggeration)),
+                        "FR": (nom["FR_X"] + (fr_x * exaggeration), nom["FR_Y"] + (fr_y * exaggeration)),
+                        "RL": (nom["RL_X"] + (rl_x * exaggeration), nom["RL_Y"] + (rl_y * exaggeration)),
+                        "RR": (nom["RR_X"] + (rr_x * exaggeration), nom["RR_Y"] + (rr_y * exaggeration)),
+                    }
 
-                    mod_x = [act_rl_x, act_fl_x, act_fr_x, act_rr_x, act_rl_x]
-                    mod_y = [act_rl_y, act_fl_y, act_fr_y, act_rr_y, act_rl_y]
+                    order = order_corners_convex(act_points)
+                    mod_x = [act_points[c][0] for c in order] + [act_points[order[0]][0]]
+                    mod_y = [act_points[c][1] for c in order] + [act_points[order[0]][1]]
 
                     mod_identifier = row["_mod_key"]
                     is_targeted = mod_identifier == selected_mod
@@ -1356,7 +1380,7 @@ if uploaded_file is not None:
             st.dataframe(df_vec_display.round(2), hide_index=True, use_container_width=True)
 
         # ==========================================================
-        # TAB 5 - NEW: COMPENSATION ADVISOR
+        # TAB 5 - COMPENSATION ADVISOR
         # ==========================================================
         with tab5:
             st.subheader("🛠️ Compensation Advisor (Rigid Roto-Translation)")
@@ -1625,22 +1649,30 @@ if uploaded_file is not None:
                         nom = get_nominal_coordinates(b_type)
                         df_t = df_sim_detail[df_sim_detail["BatteryType"] == b_type] if not df_sim_detail.empty else pd.DataFrame()
 
+                        nom_points = {
+                            "FL": (nom["FL_X"], nom["FL_Y"]),
+                            "FR": (nom["FR_X"], nom["FR_Y"]),
+                            "RL": (nom["RL_X"], nom["RL_Y"]),
+                            "RR": (nom["RR_X"], nom["RR_Y"]),
+                        }
+                        order = order_corners_convex(nom_points)
+
                         fig_overlay = go.Figure()
-                        nom_x = [nom["RL_X"], nom["FL_X"], nom["FR_X"], nom["RR_X"], nom["RL_X"]]
-                        nom_y = [nom["RL_Y"], nom["FL_Y"], nom["FR_Y"], nom["RR_Y"], nom["RL_Y"]]
+                        nom_x = [nom_points[c][0] for c in order] + [nom_points[order[0]][0]]
+                        nom_y = [nom_points[c][1] for c in order] + [nom_points[order[0]][1]]
                         fig_overlay.add_trace(go.Scatter(x=nom_x, y=nom_y, mode="lines", name="Nominal", line=dict(color="green", width=2, dash="dash")))
 
                         if not df_t.empty:
-                            avg_meas_x = {c: nom[f"{c}_X"] + df_t[f"{c}_X"].mean() for c in CORNER_NAMES}
-                            avg_meas_y = {c: nom[f"{c}_Y"] + df_t[f"{c}_Y"].mean() for c in CORNER_NAMES}
-                            meas_x = [avg_meas_x["RL"], avg_meas_x["FL"], avg_meas_x["FR"], avg_meas_x["RR"], avg_meas_x["RL"]]
-                            meas_y = [avg_meas_y["RL"], avg_meas_y["FL"], avg_meas_y["FR"], avg_meas_y["RR"], avg_meas_y["RL"]]
+                            avg_meas_points = {c: (nom[f"{c}_X"] + df_t[f"{c}_X"].mean(), nom[f"{c}_Y"] + df_t[f"{c}_Y"].mean()) for c in CORNER_NAMES}
+                            order_meas = order_corners_convex(avg_meas_points)
+                            meas_x = [avg_meas_points[c][0] for c in order_meas] + [avg_meas_points[order_meas[0]][0]]
+                            meas_y = [avg_meas_points[c][1] for c in order_meas] + [avg_meas_points[order_meas[0]][1]]
                             fig_overlay.add_trace(go.Scatter(x=meas_x, y=meas_y, mode="lines+markers", name="Measured (Avg)", line=dict(color="#ef4444", width=2)))
 
-                            avg_comp_x = {c: nom[f"{c}_X"] + df_t[f"{c}_X_Sim"].mean() for c in CORNER_NAMES}
-                            avg_comp_y = {c: nom[f"{c}_Y"] + df_t[f"{c}_Y_Sim"].mean() for c in CORNER_NAMES}
-                            comp_x = [avg_comp_x["RL"], avg_comp_x["FL"], avg_comp_x["FR"], avg_comp_x["RR"], avg_comp_x["RL"]]
-                            comp_y = [avg_comp_y["RL"], avg_comp_y["FL"], avg_comp_y["FR"], avg_comp_y["RR"], avg_comp_y["RL"]]
+                            avg_comp_points = {c: (nom[f"{c}_X"] + df_t[f"{c}_X_Sim"].mean(), nom[f"{c}_Y"] + df_t[f"{c}_Y_Sim"].mean()) for c in CORNER_NAMES}
+                            order_comp = order_corners_convex(avg_comp_points)
+                            comp_x = [avg_comp_points[c][0] for c in order_comp] + [avg_comp_points[order_comp[0]][0]]
+                            comp_y = [avg_comp_points[c][1] for c in order_comp] + [avg_comp_points[order_comp[0]][1]]
                             fig_overlay.add_trace(go.Scatter(x=comp_x, y=comp_y, mode="lines+markers", name="Compensated (Avg)", line=dict(color="#2563eb", width=2)))
 
                         fig_overlay.update_layout(
