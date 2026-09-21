@@ -136,7 +136,7 @@ def add_centroid_and_rotation(df):
     BatteryType column, returns a COPY with added columns:
       Centroid_X, Centroid_Y, Vector_Magnitude, Rotation_Angle
     This reuses exactly the same logic already used in the Vector Drift tab,
-    so it can be shared safely with the Compensation Advisor tab.
+    so it can be shared safely with the Compensation Calculator tab.
     """
     df_out = df.copy()
     df_out["Centroid_X"] = df_out[["FL_X", "FR_X", "RL_X", "RR_X"]].mean(axis=1)
@@ -327,7 +327,7 @@ def render_battery_corner_matrix(df_battery, battery_type_name, threshold_val):
 
 
 # ==============================================================================
-# COMPENSATION ADVISOR - HELPER FUNCTIONS
+# Compensation Calculator - HELPER FUNCTIONS
 # ==============================================================================
 
 CORNER_NAMES = ["FL", "FR", "RL", "RR"]
@@ -668,7 +668,7 @@ if uploaded_file is not None:
             "📈 Interactive Geometric Plot",
             "📐 Squareness Analysis",
             "🧭 Vector Drift & Conveyor Tuning",
-            "🛠️ Compensation Advisor",
+            "🛠️ Compensation Calculator",
         ])
 
         # ==========================================================
@@ -1428,10 +1428,10 @@ if uploaded_file is not None:
             st.dataframe(df_vec_display.round(2), hide_index=True, use_container_width=True)
 
         # ==========================================================
-        # TAB 5 - COMPENSATION ADVISOR
+        # TAB 5 - Compensation Calculator
         # ==========================================================
         with tab5:
-            st.subheader("🛠️ Compensation Advisor (Rigid Roto-Translation)")
+            st.subheader("🛠️ Compensation Calculator (Rigid Roto-Translation)")
             st.caption(
                 "Estimates a **rigid** compensation offset (X/Y translation + yaw rotation) "
                 "per Battery Type, based on recent process behavior (median), and simulates its "
