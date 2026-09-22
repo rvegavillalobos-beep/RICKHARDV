@@ -932,154 +932,154 @@ if uploaded_file is not None:
             else:
                 st.warning("Insufficient complete 4-corner data to generate trend plots.")
 
-        # ==========================================================
+               # ==========================================================
         # TAB 2 (FIXED: convex-ordered polygon to avoid self-crossing)
         # ==========================================================
-     with tab2:
-    st.subheader("📈 Real Geometric Visualization (Permanent Tolerance Zones)")
+        with tab2:
+            st.subheader("📈 Real Geometric Visualization (Permanent Tolerance Zones)")
 
-    if not df_analysis.empty:
-        run_filter_mode = st.radio(
-            "Data Scope:",
-            ["Run 1 Only (Recommended)", "All Runs (Including Repeats)"],
-            index=0,
-            horizontal=True,
-            key="tab2_run_filter_mode",
-        )
-
-        if run_filter_mode == "Run 1 Only (Recommended)":
-            df_analysis_scope = df_analysis[df_analysis["RunNum"] == 1].copy()
-        else:
-            df_analysis_scope = df_analysis.copy()
-
-        if df_analysis_scope.empty:
-            st.warning("No data available for the selected scope.")
-        else:
-            total_mods = len(df_analysis_scope)
-            col_ctrl1, col_ctrl2 = st.columns(2)
-
-            with col_ctrl1:
-                default_start = max(0, total_mods - 10)
-                default_end = max(0, total_mods - 1)
-                selected_range = st.slider(
-                    "Select Battery Range (Index):",
-                    min_value=0, max_value=max(0, total_mods - 1),
-                    value=(default_start, default_end), step=1,
-                    key="tab2_range_slider",
+            if not df_analysis.empty:
+                run_filter_mode = st.radio(
+                    "Data Scope:",
+                    ["Run 1 Only (Recommended)", "All Runs (Including Repeats)"],
+                    index=0,
+                    horizontal=True,
+                    key="tab2_run_filter_mode",
                 )
 
-            with col_ctrl2:
-                exaggeration = st.slider(
-                    "Deviation Exaggeration Factor:", min_value=1.0, max_value=20.0, value=1.0, step=0.5,
-                    key="tab2_exaggeration_slider",
-                )
-
-            selected_mod = st.session_state.get("selected_mod_target", " None / All ")
-            start_idx, end_idx = selected_range
-            df_to_plot = df_analysis_scope.iloc[start_idx: end_idx + 1].copy()
-
-            if selected_mod != " None / All ":
-                st.info(
-                    f"🔍 **Module selected for plot focus:** `{selected_mod}` (Highlighted in bright cyan)"
-                )
-                if selected_mod in df_analysis_scope["_mod_key"].values:
-                    if selected_mod not in df_to_plot["_mod_key"].values:
-                        target_row = df_analysis_scope[df_analysis_scope["_mod_key"] == selected_mod]
-                        df_to_plot = pd.concat([df_to_plot, target_row], ignore_index=True)
-                elif selected_mod in df_analysis["_mod_key"].values:
-                    st.warning(
-                        f"⚠️ The selected module `{selected_mod}` is outside the current scope "
-                        f"(**{run_filter_mode}**). Switch to **All Runs** to visualize it."
-                    )
-
-            fig = go.Figure()
-            all_battery_types = df_analysis_scope["BatteryType"].unique()
-
-            for b_type in all_battery_types:
-                nom = get_nominal_coordinates(b_type)
-
-                nom_points = {
-                    "FL": (nom["FL_X"], nom["FL_Y"]),
-                    "FR": (nom["FR_X"], nom["FR_Y"]),
-                    "RL": (nom["RL_X"], nom["RL_Y"]),
-                    "RR": (nom["RR_X"], nom["RR_Y"]),
-                }
-                order = order_corners_convex(nom_points)
-                nom_x = [nom_points[c][0] for c in order] + [nom_points[order[0]][0]]
-                nom_y = [nom_points[c][1] for c in order] + [nom_points[order[0]][1]]
-
-                fig.add_trace(
-                    go.Scatter(
-                        x=nom_x, y=nom_y, mode="lines", name=f"Nominal Baseline ({b_type})",
-                        line=dict(color="green", width=2, dash="dash"),
-                    )
-                )
-
-                corners_dict = nom_points
-                for c_name, (cx, cy) in corners_dict.items():
-                    eff_limit = spec_limit * exaggeration
-                    t_xmin, t_xmax = cx - eff_limit, cx + eff_limit
-                    t_ymin, t_ymax = cy - eff_limit, cy + eff_limit
-                    t_box_x = [t_xmin, t_xmax, t_xmax, t_xmin, t_xmin]
-                    t_box_y = [t_ymin, t_ymin, t_ymax, t_ymax, t_ymin]
-                    fig.add_trace(
-                        go.Scatter(
-                            x=t_box_x, y=t_box_y, mode="lines",
-                            name=f"Tolerance Zone ±{spec_limit}mm ({b_type})",
-                            line=dict(color="rgba(217, 119, 6, 0.75)", width=1.5, dash="dot"),
-                            showlegend=False,
-                        )
-                    )
-
-            for _, row in df_to_plot.iterrows():
-                fl_x, fl_y = row["FL_X"], row["FL_Y"]
-                fr_x, fr_y = row["FR_X"], row["FR_Y"]
-                rl_x, rl_y = row["RL_X"], row["RL_Y"]
-                rr_x, rr_y = row["RR_X"], row["RR_Y"]
-
-                if pd.isna(fl_x) or pd.isna(fr_x) or pd.isna(rl_x) or pd.isna(rr_x):
-                    continue
-
-                nom = get_nominal_coordinates(row["BatteryType"])
-                act_points = {
-                    "FL": (nom["FL_X"] + (fl_x * exaggeration), nom["FL_Y"] + (fl_y * exaggeration)),
-                    "FR": (nom["FR_X"] + (fr_x * exaggeration), nom["FR_Y"] + (fr_y * exaggeration)),
-                    "RL": (nom["RL_X"] + (rl_x * exaggeration), nom["RL_Y"] + (rl_y * exaggeration)),
-                    "RR": (nom["RR_X"] + (rr_x * exaggeration), nom["RR_Y"] + (rr_y * exaggeration)),
-                }
-
-                order = order_corners_convex(act_points)
-                mod_x = [act_points[c][0] for c in order] + [act_points[order[0]][0]]
-                mod_y = [act_points[c][1] for c in order] + [act_points[order[0]][1]]
-
-                mod_identifier = row["_mod_key"]
-                is_targeted = mod_identifier == selected_mod
-
-                if is_targeted:
-                    color, opacity, width = "#00e6ff", 1.0, 4
-                    label = f"⭐ {mod_identifier} [SELECTED]"
+                if run_filter_mode == "Run 1 Only (Recommended)":
+                    df_analysis_scope = df_analysis[df_analysis["RunNum"] == 1].copy()
                 else:
-                    status = row["Status"]
-                    color = "red" if status == "FAIL" else ("orange" if status == "INCOMPLETE" else "gray")
-                    opacity = 0.8 if status in ["FAIL", "INCOMPLETE"] else 0.4
-                    width = 2 if status in ["FAIL", "INCOMPLETE"] else 1
-                    label = f"{row['PartID']} (Run {row['RunNum']}) [{status}]"
+                    df_analysis_scope = df_analysis.copy()
 
-                fig.add_trace(
-                    go.Scatter(
-                        x=mod_x, y=mod_y, mode="lines+markers", name=label,
-                        line=dict(color=color, width=width),
-                        marker=dict(size=6 if is_targeted else 4), opacity=opacity,
+                if df_analysis_scope.empty:
+                    st.warning("No data available for the selected scope.")
+                else:
+                    total_mods = len(df_analysis_scope)
+                    col_ctrl1, col_ctrl2 = st.columns(2)
+
+                    with col_ctrl1:
+                        default_start = max(0, total_mods - 10)
+                        default_end = max(0, total_mods - 1)
+                        selected_range = st.slider(
+                            "Select Battery Range (Index):",
+                            min_value=0, max_value=max(0, total_mods - 1),
+                            value=(default_start, default_end), step=1,
+                            key="tab2_range_slider",
+                        )
+
+                    with col_ctrl2:
+                        exaggeration = st.slider(
+                            "Deviation Exaggeration Factor:", min_value=1.0, max_value=20.0, value=1.0, step=0.5,
+                            key="tab2_exaggeration_slider",
+                        )
+
+                    selected_mod = st.session_state.get("selected_mod_target", " None / All ")
+                    start_idx, end_idx = selected_range
+                    df_to_plot = df_analysis_scope.iloc[start_idx: end_idx + 1].copy()
+
+                    if selected_mod != " None / All ":
+                        st.info(
+                            f"🔍 **Module selected for plot focus:** `{selected_mod}` (Highlighted in bright cyan)"
+                        )
+                        if selected_mod in df_analysis_scope["_mod_key"].values:
+                            if selected_mod not in df_to_plot["_mod_key"].values:
+                                target_row = df_analysis_scope[df_analysis_scope["_mod_key"] == selected_mod]
+                                df_to_plot = pd.concat([df_to_plot, target_row], ignore_index=True)
+                        elif selected_mod in df_analysis["_mod_key"].values:
+                            st.warning(
+                                f"⚠️ The selected module `{selected_mod}` is outside the current scope "
+                                f"(**{run_filter_mode}**). Switch to **All Runs** to visualize it."
+                            )
+
+                    fig = go.Figure()
+                    all_battery_types = df_analysis_scope["BatteryType"].unique()
+
+                    for b_type in all_battery_types:
+                        nom = get_nominal_coordinates(b_type)
+
+                        nom_points = {
+                            "FL": (nom["FL_X"], nom["FL_Y"]),
+                            "FR": (nom["FR_X"], nom["FR_Y"]),
+                            "RL": (nom["RL_X"], nom["RL_Y"]),
+                            "RR": (nom["RR_X"], nom["RR_Y"]),
+                        }
+                        order = order_corners_convex(nom_points)
+                        nom_x = [nom_points[c][0] for c in order] + [nom_points[order[0]][0]]
+                        nom_y = [nom_points[c][1] for c in order] + [nom_points[order[0]][1]]
+
+                        fig.add_trace(
+                            go.Scatter(
+                                x=nom_x, y=nom_y, mode="lines", name=f"Nominal Baseline ({b_type})",
+                                line=dict(color="green", width=2, dash="dash"),
+                            )
+                        )
+
+                        corners_dict = nom_points
+                        for c_name, (cx, cy) in corners_dict.items():
+                            eff_limit = spec_limit * exaggeration
+                            t_xmin, t_xmax = cx - eff_limit, cx + eff_limit
+                            t_ymin, t_ymax = cy - eff_limit, cy + eff_limit
+                            t_box_x = [t_xmin, t_xmax, t_xmax, t_xmin, t_xmin]
+                            t_box_y = [t_ymin, t_ymin, t_ymax, t_ymax, t_ymin]
+                            fig.add_trace(
+                                go.Scatter(
+                                    x=t_box_x, y=t_box_y, mode="lines",
+                                    name=f"Tolerance Zone ±{spec_limit}mm ({b_type})",
+                                    line=dict(color="rgba(217, 119, 6, 0.75)", width=1.5, dash="dot"),
+                                    showlegend=False,
+                                )
+                            )
+
+                    for _, row in df_to_plot.iterrows():
+                        fl_x, fl_y = row["FL_X"], row["FL_Y"]
+                        fr_x, fr_y = row["FR_X"], row["FR_Y"]
+                        rl_x, rl_y = row["RL_X"], row["RL_Y"]
+                        rr_x, rr_y = row["RR_X"], row["RR_Y"]
+
+                        if pd.isna(fl_x) or pd.isna(fr_x) or pd.isna(rl_x) or pd.isna(rr_x):
+                            continue
+
+                        nom = get_nominal_coordinates(row["BatteryType"])
+                        act_points = {
+                            "FL": (nom["FL_X"] + (fl_x * exaggeration), nom["FL_Y"] + (fl_y * exaggeration)),
+                            "FR": (nom["FR_X"] + (fr_x * exaggeration), nom["FR_Y"] + (fr_y * exaggeration)),
+                            "RL": (nom["RL_X"] + (rl_x * exaggeration), nom["RL_Y"] + (rl_y * exaggeration)),
+                            "RR": (nom["RR_X"] + (rr_x * exaggeration), nom["RR_Y"] + (rr_y * exaggeration)),
+                        }
+
+                        order = order_corners_convex(act_points)
+                        mod_x = [act_points[c][0] for c in order] + [act_points[order[0]][0]]
+                        mod_y = [act_points[c][1] for c in order] + [act_points[order[0]][1]]
+
+                        mod_identifier = row["_mod_key"]
+                        is_targeted = mod_identifier == selected_mod
+
+                        if is_targeted:
+                            color, opacity, width = "#00e6ff", 1.0, 4
+                            label = f"⭐ {mod_identifier} [SELECTED]"
+                        else:
+                            status = row["Status"]
+                            color = "red" if status == "FAIL" else ("orange" if status == "INCOMPLETE" else "gray")
+                            opacity = 0.8 if status in ["FAIL", "INCOMPLETE"] else 0.4
+                            width = 2 if status in ["FAIL", "INCOMPLETE"] else 1
+                            label = f"{row['PartID']} (Run {row['RunNum']}) [{status}]"
+
+                        fig.add_trace(
+                            go.Scatter(
+                                x=mod_x, y=mod_y, mode="lines+markers", name=label,
+                                line=dict(color=color, width=width),
+                                marker=dict(size=6 if is_targeted else 4), opacity=opacity,
+                            )
+                        )
+
+                    fig.update_layout(
+                        xaxis_title="Global X Axis [mm]", yaxis_title="Global Y Axis [mm]",
+                        height=700, yaxis=dict(scaleanchor="x", scaleratio=1),
                     )
-                )
-
-            fig.update_layout(
-                xaxis_title="Global X Axis [mm]", yaxis_title="Global Y Axis [mm]",
-                height=700, yaxis=dict(scaleanchor="x", scaleratio=1),
-            )
-            st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.warning("No data available to plot.")
+                    st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("No data available to plot.")
 
         # ==========================================================
         # TAB 3
