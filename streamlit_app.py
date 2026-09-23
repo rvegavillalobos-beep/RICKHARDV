@@ -80,7 +80,8 @@ def extract_corner_index(feature_name, part_id):
 
 def get_nominal_coordinates(bat_type):
     # NOTE: Sign of FL_Y and RL_Y corrected to negative (left-side corners
-    # must sit on the opposite side of the Y axis relative to FR/RR).
+    # must sit on the opposite side of the Y axis relative to FR/RR),
+    # matching the CAD reference system where left corners carry negative Y.
     if str(bat_type).upper() == "TYPE S":
         return {
             "FL_X": 2290.48, "FL_Y": -559.4,
@@ -327,7 +328,7 @@ def render_battery_corner_matrix(df_battery, battery_type_name, threshold_val):
 
 
 # ==============================================================================
-# Compensation Calculator - HELPER FUNCTIONS
+# COMPENSATION CALCULATOR - HELPER FUNCTIONS
 # ==============================================================================
 
 CORNER_NAMES = ["FL", "FR", "RL", "RR"]
@@ -545,15 +546,20 @@ if uploaded_file is not None:
         df_raw = df_raw.sort_values(by="ParsedDate").reset_index(drop=True)
 
         # ----- Run inference -----
+        # NOTE: BaseKey is based ONLY on PartID (not PartID + Date). This
+        # ensures a given physical module keeps a single, continuous run
+        # history across ALL the days it was measured. Previously, including
+        # the date in the key caused the run counter to reset back to 1
+        # every time the same module was re-measured on a different day,
+        # producing multiple "Run 1" records for the same physical module.
         base_keys = []
         current_runs = []
         run_tracker = {}
         mod_corner_history = {}
 
         for _, r_item in df_raw.iterrows():
-            f_date_str = str(r_item["ParsedDate"].date())
             p_val = r_item[part_col]
-            base_key = f"{f_date_str}|{p_val}"
+            base_key = str(p_val)
             f_name = r_item[feat_col]
 
             if base_key not in run_tracker:
@@ -932,8 +938,8 @@ if uploaded_file is not None:
             else:
                 st.warning("Insufficient complete 4-corner data to generate trend plots.")
 
-               # ==========================================================
-        # TAB 2 (FIXED: convex-ordered polygon to avoid self-crossing)
+        # ==========================================================
+        # TAB 2 (Run 1 filter + convex-ordered polygon + reversed Y axis)
         # ==========================================================
         with tab2:
             st.subheader("📈 Real Geometric Visualization (Permanent Tolerance Zones)")
@@ -1075,7 +1081,8 @@ if uploaded_file is not None:
 
                     fig.update_layout(
                         xaxis_title="Global X Axis [mm]", yaxis_title="Global Y Axis [mm]",
-                        height=700, yaxis=dict(scaleanchor="x", scaleratio=1),
+                        height=700,
+                        yaxis=dict(scaleanchor="x", scaleratio=1, autorange="reversed"),
                     )
                     st.plotly_chart(fig, use_container_width=True)
             else:
@@ -1401,7 +1408,10 @@ if uploaded_file is not None:
 
                 fig_drift.update_layout(
                     xaxis=dict(title="Mean X Deviation [mm]", zeroline=True, zerolinecolor="#6b7280"),
-                    yaxis=dict(title="Mean Y Deviation [mm]", zeroline=True, zerolinecolor="#6b7280", scaleanchor="x", scaleratio=1),
+                    yaxis=dict(
+                        title="Mean Y Deviation [mm]", zeroline=True, zerolinecolor="#6b7280",
+                        scaleanchor="x", scaleratio=1, autorange="reversed",
+                    ),
                     height=520, margin=dict(l=10, r=10, t=30, b=10), template="plotly_white",
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                 )
@@ -1451,10 +1461,10 @@ if uploaded_file is not None:
             st.dataframe(df_vec_display.round(2), hide_index=True, use_container_width=True)
 
         # ==========================================================
-        # TAB 5 - Compensation Calculator
+        # TAB 5 - COMPENSATION CALCULATOR
         # ==========================================================
         with tab5:
-            st.subheader("🛠️ Compensation Calculator")
+            st.subheader("🛠️ Compensation Calculator (Rigid Roto-Translation)")
             st.caption(
                 "Estimates a **rigid** compensation offset (X/Y translation + yaw rotation) "
                 "per Battery Type, based on recent process behavior (median), and simulates its "
@@ -1696,7 +1706,8 @@ if uploaded_file is not None:
                             )
                         fig_scatter.update_layout(
                             xaxis=dict(title="X [mm]", zeroline=True, scaleanchor="y", scaleratio=1),
-                            yaxis=dict(title="Y [mm]", zeroline=True), height=420, template="plotly_white",
+                            yaxis=dict(title="Y [mm]", zeroline=True, autorange="reversed"),
+                            height=420, template="plotly_white",
                             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                         )
                         st.plotly_chart(fig_scatter, use_container_width=True)
@@ -1733,7 +1744,8 @@ if uploaded_file is not None:
                                 ))
                         fig_vec.update_layout(
                             xaxis=dict(title="X [mm]", zeroline=True, scaleanchor="y", scaleratio=1),
-                            yaxis=dict(title="Y [mm]", zeroline=True), height=420, template="plotly_white",
+                            yaxis=dict(title="Y [mm]", zeroline=True, autorange="reversed"),
+                            height=420, template="plotly_white",
                             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                         )
                         st.plotly_chart(fig_vec, use_container_width=True)
@@ -1805,7 +1817,7 @@ if uploaded_file is not None:
 
                         fig_overlay.update_layout(
                             title=f"{b_type}", height=420, template="plotly_white",
-                            yaxis=dict(scaleanchor="x", scaleratio=1),
+                            yaxis=dict(scaleanchor="x", scaleratio=1, autorange="reversed"),
                             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                         )
                         with overlay_cols[idx]:
