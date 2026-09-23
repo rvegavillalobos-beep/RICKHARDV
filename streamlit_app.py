@@ -889,7 +889,7 @@ if uploaded_file is not None:
                         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                         template="plotly_white",
                     )
-                   st.plotly_chart(fig_bt, use_container_width=True, key="tab1_fig_bt")
+                    st.plotly_chart(fig_bt, use_container_width=True, key="tab1_fig_bt")
                 else:
                     st.info("No data available for the selected week range.")
 
@@ -1757,7 +1757,7 @@ if uploaded_file is not None:
                             height=420, template="plotly_white",
                             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                         )
-                        st.plotly_chart(fig_vec, use_container_width=True)
+                        st.plotly_chart(fig_vec, use_container_width=True, key="tab5_fig_vec")
 
                     with viz_c4:
                         st.markdown("**FPY per Week: Real vs Simulated**")
@@ -1782,58 +1782,7 @@ if uploaded_file is not None:
                                 height=420, template="plotly_white",
                                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                             )
-                            st.plotly_chart(fig_fpy_cmp, use_container_width=True)
-
-
-                    with viz_c4:
-                        st.markdown("**FPY per Week: Real vs Simulated**")
-                        if not df_sim_detail.empty:
-                            weekly_cmp = (
-                                df_sim_detail.groupby("CalendarWeek")
-                                .apply(lambda g: pd.Series({
-                                    "Real_FPY": (g["Status"] == "PASS").mean() * 100,
-                                    "Sim_FPY": (g["Status_Sim"] == "PASS").mean() * 100,
-                                    "N": len(g),
-                                }))
-                                .reset_index()
-                            )
-                            weekly_cmp["WeekNum"] = weekly_cmp["CalendarWeek"].str.replace("CW", "", regex=False).astype(int)
-                            weekly_cmp = weekly_cmp.sort_values("WeekNum")
-
-                            fig_fpy_cmp = go.Figure()
-                            fig_fpy_cmp.add_trace(go.Scatter(x=weekly_cmp["CalendarWeek"], y=weekly_cmp["Real_FPY"], mode="lines+markers", name="Real FPY", line=dict(color="#ef4444", width=3)))
-                            fig_fpy_cmp.add_trace(go.Scatter(x=weekly_cmp["CalendarWeek"], y=weekly_cmp["Sim_FPY"], mode="lines+markers", name="Simulated FPY", line=dict(color="#2563eb", width=3)))
-                            fig_fpy_cmp.update_layout(
-                                xaxis_title="Calendar Week", yaxis_title="FPY [%]", yaxis=dict(range=[0, 105]),
-                                height=420, template="plotly_white",
-                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                            )
-                            st.plotly_chart(fig_fpy_cmp, use_container_width=True)
-
-                    with viz_c4:
-                        st.markdown("**FPY per Week: Real vs Simulated**")
-                        if not df_sim_detail.empty:
-                            weekly_cmp = (
-                                df_sim_detail.groupby("CalendarWeek")
-                                .apply(lambda g: pd.Series({
-                                    "Real_FPY": (g["Status"] == "PASS").mean() * 100,
-                                    "Sim_FPY": (g["Status_Sim"] == "PASS").mean() * 100,
-                                    "N": len(g),
-                                }))
-                                .reset_index()
-                            )
-                            weekly_cmp["WeekNum"] = weekly_cmp["CalendarWeek"].str.replace("CW", "", regex=False).astype(int)
-                            weekly_cmp = weekly_cmp.sort_values("WeekNum")
-
-                            fig_fpy_cmp = go.Figure()
-                            fig_fpy_cmp.add_trace(go.Scatter(x=weekly_cmp["CalendarWeek"], y=weekly_cmp["Real_FPY"], mode="lines+markers", name="Real FPY", line=dict(color="#ef4444", width=3)))
-                            fig_fpy_cmp.add_trace(go.Scatter(x=weekly_cmp["CalendarWeek"], y=weekly_cmp["Sim_FPY"], mode="lines+markers", name="Simulated FPY", line=dict(color="#2563eb", width=3)))
-                            fig_fpy_cmp.update_layout(
-                                xaxis_title="Calendar Week", yaxis_title="FPY [%]", yaxis=dict(range=[0, 105]),
-                                height=420, template="plotly_white",
-                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                            )
-                            st.plotly_chart(fig_fpy_cmp, use_container_width=True)
+                            st.plotly_chart(fig_fpy_cmp, use_container_width=True, key="tab5_fig_fpy_cmp")
 
                     st.markdown(" ")
                     st.markdown("##### 🔀 TRANSITION MATRIX (Original Status → Simulated Status)")
