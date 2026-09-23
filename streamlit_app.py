@@ -1727,28 +1727,39 @@ if uploaded_file is not None:
 
                     viz_c3, viz_c4 = st.columns(2)
 
-                    with viz_c3:
-                        st.markdown("**Compensation Vector**")
-                        fig_vec = go.Figure()
-                        for _, r in df_comp_summary.iterrows():
-                            if pd.notna(r["Median Centroid_X [mm]"]):
-                                fig_vec.add_trace(go.Scatter(
-                                    x=[0, r["Median Centroid_X [mm]"]], y=[0, r["Median Centroid_Y [mm]"]],
-                                    mode="lines+markers", name=f"Observed Bias ({r['BatteryType']})", line=dict(color="#ef4444", width=3),
-                                ))
-                            if pd.notna(r["Applied_X_Offset_mm"]):
-                                fig_vec.add_trace(go.Scatter(
-                                    x=[0, r["Applied_X_Offset_mm"]], y=[0, r["Applied_Y_Offset_mm"]],
-                                    mode="lines+markers", name=f"Applied Offset ({r['BatteryType']})",
-                                    line=dict(color="#2563eb", width=3, dash="dash"),
-                                ))
-                        fig_vec.update_layout(
-                            xaxis=dict(title="X [mm]", zeroline=True, scaleanchor="y", scaleratio=1),
-                            yaxis=dict(title="Y [mm]", zeroline=True, autorange="reversed"),
-                            height=420, template="plotly_white",
-                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                        )
-                        st.plotly_chart(fig_vec, use_container_width=True)
+with viz_c3:
+    st.markdown("**Compensation Vector**")
+
+    # Distinct color families per Battery Type, consistent with Tab 4's
+    # Type S (blue) / Type M (orange) convention. Within each family,
+    # "Observed Bias" uses a darker/saturated shade (the problem) and
+    # "Applied Offset" uses a lighter shade (the correction), so both the
+    # battery type AND the vector role are visually distinguishable.
+    observed_bias_colors = {"Type S": "#1d4ed8", "Type M": "#c2410c"}
+    applied_offset_colors = {"Type S": "#60a5fa", "Type M": "#fbbf24"}
+
+    fig_vec = go.Figure()
+    for _, r in df_comp_summary.iterrows():
+        b_type = r["BatteryType"]
+        if pd.notna(r["Median Centroid_X [mm]"]):
+            fig_vec.add_trace(go.Scatter(
+                x=[0, r["Median Centroid_X [mm]"]], y=[0, r["Median Centroid_Y [mm]"]],
+                mode="lines+markers", name=f"Observed Bias ({b_type})",
+                line=dict(color=observed_bias_colors.get(b_type, "#ef4444"), width=3),
+            ))
+        if pd.notna(r["Applied_X_Offset_mm"]):
+            fig_vec.add_trace(go.Scatter(
+                x=[0, r["Applied_X_Offset_mm"]], y=[0, r["Applied_Y_Offset_mm"]],
+                mode="lines+markers", name=f"Applied Offset ({b_type})",
+                line=dict(color=applied_offset_colors.get(b_type, "#2563eb"), width=3, dash="dash"),
+            ))
+    fig_vec.update_layout(
+        xaxis=dict(title="X [mm]", zeroline=True, scaleanchor="y", scaleratio=1),
+        yaxis=dict(title="Y [mm]", zeroline=True, autorange="reversed"),
+        height=420, template="plotly_white",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    st.plotly_chart(fig_vec, use_container_width=True)
 
                     with viz_c4:
                         st.markdown("**FPY per Week: Real vs Simulated**")
