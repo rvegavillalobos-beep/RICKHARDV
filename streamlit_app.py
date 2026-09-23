@@ -939,24 +939,41 @@ if uploaded_file is not None:
                 st.warning("Insufficient complete 4-corner data to generate trend plots.")
 
         # ==========================================================
-        # TAB 2 (Run 1 filter + convex-ordered polygon + reversed Y axis)
+        # TAB 2 (Run 1 filter + Battery Type filter + reversed Y axis)
         # ==========================================================
         with tab2:
             st.subheader("📈 Real Geometric Visualization (Permanent Tolerance Zones)")
 
             if not df_analysis.empty:
-                run_filter_mode = st.radio(
-                    "Data Scope:",
-                    ["Run 1 Only (Recommended)", "All Runs (Including Repeats)"],
-                    index=0,
-                    horizontal=True,
-                    key="tab2_run_filter_mode",
-                )
+                filter_row_c1, filter_row_c2 = st.columns(2)
+
+                with filter_row_c1:
+                    run_filter_mode = st.radio(
+                        "Data Scope:",
+                        ["Run 1 Only (Recommended)", "All Runs (Including Repeats)"],
+                        index=0,
+                        horizontal=True,
+                        key="tab2_run_filter_mode",
+                    )
+
+                with filter_row_c2:
+                    battery_type_filter = st.radio(
+                        "Battery Type:",
+                        ["All Types", "Type S Only", "Type M Only"],
+                        index=0,
+                        horizontal=True,
+                        key="tab2_battery_type_filter",
+                    )
 
                 if run_filter_mode == "Run 1 Only (Recommended)":
                     df_analysis_scope = df_analysis[df_analysis["RunNum"] == 1].copy()
                 else:
                     df_analysis_scope = df_analysis.copy()
+
+                if battery_type_filter == "Type S Only":
+                    df_analysis_scope = df_analysis_scope[df_analysis_scope["BatteryType"] == "Type S"].copy()
+                elif battery_type_filter == "Type M Only":
+                    df_analysis_scope = df_analysis_scope[df_analysis_scope["BatteryType"] == "Type M"].copy()
 
                 if df_analysis_scope.empty:
                     st.warning("No data available for the selected scope.")
@@ -995,7 +1012,7 @@ if uploaded_file is not None:
                         elif selected_mod in df_analysis["_mod_key"].values:
                             st.warning(
                                 f"⚠️ The selected module `{selected_mod}` is outside the current scope "
-                                f"(**{run_filter_mode}**). Switch to **All Runs** to visualize it."
+                                f"(**{run_filter_mode}** / **{battery_type_filter}**). Adjust the filters above to visualize it."
                             )
 
                     fig = go.Figure()
