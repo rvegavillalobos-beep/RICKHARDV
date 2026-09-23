@@ -318,13 +318,13 @@ def render_battery_corner_matrix(df_battery, battery_type_name, threshold_val):
     df_rr = df_battery[df_battery["Corner"] == "Rear Right"]
 
     with row1_col1:
-        st.plotly_chart(plot_corner_deviation(df_fl, "Front Left Corner (FL)", threshold_val), use_container_width=True)
+        st.plotly_chart(plot_corner_deviation(df_fl, "Front Left Corner (FL)", threshold_val), use_container_width=True, key=f"corner_fl_{battery_type_name}")
     with row1_col2:
-        st.plotly_chart(plot_corner_deviation(df_fr, "Front Right Corner (FR)", threshold_val), use_container_width=True)
+        st.plotly_chart(plot_corner_deviation(df_fr, "Front Right Corner (FR)", threshold_val), use_container_width=True, key=f"corner_fr_{battery_type_name}")
     with row2_col1:
-        st.plotly_chart(plot_corner_deviation(df_rl, "Rear Left Corner (RL)", threshold_val), use_container_width=True)
+        st.plotly_chart(plot_corner_deviation(df_rl, "Rear Left Corner (RL)", threshold_val), use_container_width=True, key=f"corner_rl_{battery_type_name}")
     with row2_col2:
-        st.plotly_chart(plot_corner_deviation(df_rr, "Rear Right Corner (RR)", threshold_val), use_container_width=True)
+        st.plotly_chart(plot_corner_deviation(df_rr, "Rear Right Corner (RR)", threshold_val), use_container_width=True, key=f"corner_rr_{battery_type_name}")
 
 
 # ==============================================================================
@@ -808,7 +808,7 @@ if uploaded_file is not None:
                     fig_weekly.update_yaxes(title_text="Tested Volume (Units)", range=[0, vol_axis_max], secondary_y=True, showgrid=False)
                     fig_weekly.update_xaxes(title_text="Calendar Week")
 
-                    st.plotly_chart(fig_weekly, use_container_width=True)
+                    st.plotly_chart(fig_weekly, use_container_width=True, key="tab1_fig_weekly")
                     st.caption("📌 **Note:** Weeks marked with an asterisk (*) have a low sample size (N < 5).")
                 else:
                     st.info("No data available to generate the weekly trend.")
@@ -889,7 +889,7 @@ if uploaded_file is not None:
                         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                         template="plotly_white",
                     )
-                    st.plotly_chart(fig_bt, use_container_width=True)
+                   st.plotly_chart(fig_bt, use_container_width=True, key="tab1_fig_bt")
                 else:
                     st.info("No data available for the selected week range.")
 
@@ -1084,7 +1084,7 @@ if uploaded_file is not None:
                         height=700,
                         yaxis=dict(scaleanchor="x", scaleratio=1, autorange="reversed"),
                     )
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, use_container_width=True, key="tab2_fig_geometric")
             else:
                 st.warning("No data available to plot.")
 
@@ -1210,7 +1210,7 @@ if uploaded_file is not None:
                                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                                 template="plotly_white",
                             )
-                            st.plotly_chart(fig_sq, use_container_width=True)
+                            st.plotly_chart(fig_sq, use_container_width=True, key="tab3_fig_sq")
 
                         with col_sq2:
                             df_deformed_only = df_sq_filtered[df_sq_filtered["Squareness Status"] == "DEFORMED"].copy()
@@ -1260,7 +1260,7 @@ if uploaded_file is not None:
                                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                                     template="plotly_white",
                                 )
-                                st.plotly_chart(fig_cause, use_container_width=True)
+                                st.plotly_chart(fig_cause, use_container_width=True, key="tab3_fig_cause")
                             else:
                                 st.success("🎉 No DEFORMED batteries found in the selected week range!")
 
@@ -1415,7 +1415,7 @@ if uploaded_file is not None:
                     height=520, margin=dict(l=10, r=10, t=30, b=10), template="plotly_white",
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                 )
-                st.plotly_chart(fig_drift, use_container_width=True)
+                st.plotly_chart(fig_drift, use_container_width=True, key="tab4_fig_drift")
 
             with col_v2:
                 st.markdown("##### 📉 Error Drift Magnitude & Yaw Rotation Analysis")
@@ -1446,7 +1446,7 @@ if uploaded_file is not None:
                 fig_drift_rot.update_yaxes(title_text="Yaw (°)", row=2, col=1, showgrid=True)
                 fig_drift_rot.update_xaxes(title_text="Calendar Week", row=2, col=1)
                 fig_drift_rot.update_layout(height=520, margin=dict(l=10, r=10, t=30, b=10), showlegend=False, template="plotly_white")
-                st.plotly_chart(fig_drift_rot, use_container_width=True)
+                st.plotly_chart(fig_drift_rot, use_container_width=True, key="tab4_fig_drift_rot")
 
             st.markdown(" ")
             st.markdown("##### 📋 Vector & Rotation Summary Table")
@@ -1710,7 +1710,7 @@ if uploaded_file is not None:
                             height=420, template="plotly_white",
                             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                         )
-                        st.plotly_chart(fig_scatter, use_container_width=True)
+                        st.plotly_chart(fig_scatter, use_container_width=True, key="tab5_fig_scatter")
 
                     with viz_c2:
                         st.markdown("**Yaw Distribution: Before vs After**")
@@ -1723,7 +1723,7 @@ if uploaded_file is not None:
                             height=420, template="plotly_white",
                             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                         )
-                        st.plotly_chart(fig_hist, use_container_width=True)
+                        st.plotly_chart(fig_hist, use_container_width=True, key="tab5_fig_hist")
 
                     viz_c3, viz_c4 = st.columns(2)
 
@@ -1881,7 +1881,7 @@ if uploaded_file is not None:
                             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                         )
                         with overlay_cols[idx]:
-                            st.plotly_chart(fig_overlay, use_container_width=True)
+                            st.plotly_chart(fig_overlay, use_container_width=True, key=f"tab5_fig_overlay_{b_type}")
 
                     st.markdown(" ")
                     st.markdown("##### 📋 PIECE-LEVEL SIMULATION TABLE")
