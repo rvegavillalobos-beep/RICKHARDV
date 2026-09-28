@@ -725,13 +725,31 @@ if uploaded_file is not None:
 
             with col_t2:
                 st.markdown("##### WEEKLY FPY TREND & PRODUCTION VOLUME")
-                ma_window = st.slider(
-                    "Moving Average Window (Weeks):", min_value=2, max_value=10, value=3, step=1,
-                    key="fpy_ma_window_slider",
-                )
 
-                if not df_first_valid.empty:
-                    weekly_group = df_first_valid.groupby("CalendarWeek")
+                trend_ctrl_c1, trend_ctrl_c2 = st.columns([1.3, 1])
+                with trend_ctrl_c1:
+                    ma_window = st.slider(
+                        "Moving Average Window (Weeks):", min_value=2, max_value=10, value=3, step=1,
+                        key="fpy_ma_window_slider",
+                    )
+                with trend_ctrl_c2:
+                    fpy_trend_type_filter = st.radio(
+                        "Battery Type:",
+                        ["All Types", "Type S Only", "Type M Only"],
+                        index=0,
+                        horizontal=True,
+                        key="tab1_fpy_trend_type_filter",
+                    )
+
+                if fpy_trend_type_filter == "Type S Only":
+                    df_first_valid_fpy_scope = df_first_valid[df_first_valid["BatteryType"] == "Type S"].copy()
+                elif fpy_trend_type_filter == "Type M Only":
+                    df_first_valid_fpy_scope = df_first_valid[df_first_valid["BatteryType"] == "Type M"].copy()
+                else:
+                    df_first_valid_fpy_scope = df_first_valid.copy()
+
+                if not df_first_valid_fpy_scope.empty:
+                    weekly_group = df_first_valid_fpy_scope.groupby("CalendarWeek")
                     weekly_data = []
                     for w, w_group in weekly_group:
                         w_total = len(w_group)
@@ -803,6 +821,10 @@ if uploaded_file is not None:
                         barmode="stack", height=400, margin=dict(l=10, r=10, t=30, b=20),
                         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                         template="plotly_white",
+                        title=dict(
+                            text=f"<b>Scope: {fpy_trend_type_filter}</b>", x=0.5, xanchor="center",
+                            font=dict(size=12, color="#6b7280"),
+                        ),
                     )
                     fig_weekly.update_yaxes(title_text="FPY (%)", range=[0, 115], secondary_y=False, showgrid=True, gridcolor="rgba(128, 128, 128, 0.2)")
                     fig_weekly.update_yaxes(title_text="Tested Volume (Units)", range=[0, vol_axis_max], secondary_y=True, showgrid=False)
@@ -811,11 +833,12 @@ if uploaded_file is not None:
                     st.plotly_chart(fig_weekly, use_container_width=True, key="tab1_fig_weekly")
                     st.caption("📌 **Note:** Weeks marked with an asterisk (*) have a low sample size (N < 5).")
                 else:
-                    st.info("No data available to generate the weekly trend.")
+                    st.info(f"No data available for **{fpy_trend_type_filter}** to generate the weekly trend.")
 
             st.markdown(" ")
             st.markdown("##### 📅 WEEKLY PASS RATE & BREAKDOWN TABLE")
-            if not df_first_valid.empty:
+            if not df_first_valid_fpy_scope.empty:
+                st.caption(f"Showing breakdown for scope: **{fpy_trend_type_filter}**")
                 if exclude_incomplete:
                     df_weekly_display = df_weekly[["CalendarWeek", "Total", "Passed", "Failed", "PassRate"]].copy()
                     df_weekly_display["PassRate"] = df_weekly_display["PassRate"].apply(lambda x: f"{x:.1f}%")
@@ -826,6 +849,8 @@ if uploaded_file is not None:
                     df_weekly_display.columns = ["Calendar Week", "Total Parts", "Passed (OK)", "Failed (NOK)", "Incomplete", "Pass Rate (FPY)"]
 
                 st.dataframe(df_weekly_display, hide_index=True, use_container_width=True)
+            else:
+                st.info(f"No data available for **{fpy_trend_type_filter}** to build the breakdown table.")
 
             st.markdown(" ")
             st.markdown("##### 📊 QUALITY BREAKDOWN BY BATTERY TYPE & WEEK RANGE (First Measurement)")
